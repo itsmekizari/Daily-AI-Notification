@@ -21,7 +21,6 @@ public final class ApiClient {
 
     public static JSONObject generateMessage(
             String deviceId,
-            String category,
             String language
     ) throws Exception {
 
@@ -41,7 +40,6 @@ public final class ApiClient {
 
             JSONObject body = new JSONObject();
             body.put("device_id", deviceId);
-            body.put("category", category);
             body.put("language", language);
 
             byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
@@ -71,8 +69,7 @@ public final class ApiClient {
             }
 
             if (code < 200 || code >= 300) {
-                throw new IOException(
-                        "HTTP " + code + ": " + result.toString());
+                throw new IOException("HTTP " + code + ": " + result);
             }
 
             return new JSONObject(result.toString());

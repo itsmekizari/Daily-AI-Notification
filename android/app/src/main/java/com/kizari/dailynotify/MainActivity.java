@@ -2,9 +2,7 @@ package com.kizari.dailynotify;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.AlarmManager;
 import android.app.TimePickerDialog;
-import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -36,18 +34,12 @@ public class MainActivity extends Activity {
 
     private static final String PREFS = "daily_ai_prefs";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 5001;
-
-    private static final String[] CATEGORIES = {
-            "Random", "Teasing", "Funny", "Cute", "Motivational",
-            "Good Morning", "Good Night", "Study Reminder"
-    };
-
+    private static final String FIXED_STYLE = "Love Teasing";
     private static final String[] LANGUAGES = {
             "Burmese + English", "Burmese only", "English only"
     };
 
     private SharedPreferences prefs;
-    private Spinner categorySpinner;
     private Spinner languageSpinner;
     private Switch enabledSwitch;
     private TextView timeText;
@@ -59,7 +51,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         ensureDeviceId();
         loadPrefs();
@@ -76,13 +67,6 @@ public class MainActivity extends Activity {
             }
             updateStatus();
         }
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        // Executor is intentionally left available for the process lifetime; a
-        // new activity instance can be created without interrupting a tiny API call.
     }
 
     private void ensureDeviceId() {
@@ -110,20 +94,17 @@ public class MainActivity extends Activity {
         root.addView(title, matchWrap());
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("နေ့စဉ် AI-generated Burmese + English notification");
+        subtitle.setText("နေ့တိုင်း AI က အချစ်အကြောင်းကို စနှောက်၊ လှောင်ပြောင်ပြီး playful social-media vibe နဲ့ message အသစ်တစ်ခု generate လုပ်ပေးမယ်");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         root.addView(subtitle, marginParams(0, 6, 0, 22));
 
-        root.addView(label("Category"), marginParams(0, 0, 0, 4));
-        categorySpinner = new Spinner(this);
-        ArrayAdapter<String> categoryAdapter = new ArrayAdapter<>(
-                this, android.R.layout.simple_spinner_item, CATEGORIES);
-        categoryAdapter.setDropDownViewResource(
-                android.R.layout.simple_spinner_dropdown_item);
-        categorySpinner.setAdapter(categoryAdapter);
-        selectSpinner(categorySpinner, prefs.getString("category", "Random"));
-        root.addView(categorySpinner, matchWrap());
+        root.addView(label("AI Style"), marginParams(0, 0, 0, 4));
+        TextView fixedStyle = new TextView(this);
+        fixedStyle.setText("😏 " + FIXED_STYLE + "\nတစ်မျိုးတည်းပဲ • AI auto-generated");
+        fixedStyle.setTextSize(18);
+        fixedStyle.setPadding(dp(12), dp(10), dp(12), dp(10));
+        root.addView(fixedStyle, matchWrap());
 
         root.addView(label("Language"), marginParams(0, 18, 0, 4));
         languageSpinner = new Spinner(this);
@@ -164,7 +145,7 @@ public class MainActivity extends Activity {
         test.setOnClickListener(v -> {
             boolean shown = NotificationHelper.show(
                     this,
-                    "🤭 Test",
+                    "😏 Love Teasing",
                     "စမ်းသပ် notification အောင်မြင်ပါတယ်!\n\nTest notification works!");
             if (!shown) {
                 Toast.makeText(this,
@@ -192,23 +173,21 @@ public class MainActivity extends Activity {
     }
 
     private void generateNow() {
-        String category = String.valueOf(categorySpinner.getSelectedItem());
         String language = String.valueOf(languageSpinner.getSelectedItem());
         boolean enabled = enabledSwitch.isChecked();
 
         prefs.edit()
-                .putString("category", category)
+                .putString("category", FIXED_STYLE)
                 .putString("language", language)
                 .putBoolean("enabled", enabled)
                 .apply();
 
-        Toast.makeText(this, "Generating AI message...", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "AI is generating a new message...", Toast.LENGTH_SHORT).show();
 
         executor.execute(() -> {
             try {
                 String deviceId = prefs.getString("device_id", UUID.randomUUID().toString());
-                JSONObject response = ApiClient.generateMessage(
-                        deviceId, category, language);
+                JSONObject response = ApiClient.generateMessage(deviceId, language);
                 JSONObject data = response.optJSONObject("data");
 
                 if (!response.optBoolean("success", false) || data == null) {
@@ -219,12 +198,16 @@ public class MainActivity extends Activity {
                 String en = data.optString("en", "").trim();
                 String message = formatMessage(my, en, language);
 
-                prefs.edit().putString("last_status", "AI success").apply();
+                prefs.edit()
+                        .putString("category", FIXED_STYLE)
+                        .putString("last_status", "AI success")
+                        .putLong("last_success_at", System.currentTimeMillis())
+                        .apply();
 
                 runOnUiThread(() -> {
-                    boolean shown = NotificationHelper.show(this, category, message);
+                    boolean shown = NotificationHelper.show(this, "😏 Love Teasing", message);
                     Toast.makeText(this,
-                            shown ? "AI generated successfully ✅" : "AI generated, but notification is blocked",
+                            shown ? "AI generated ✅" : "AI generated, but notification is blocked",
                             Toast.LENGTH_LONG).show();
                     updateStatus();
                 });
@@ -243,7 +226,7 @@ public class MainActivity extends Activity {
     private String safeError(Exception e) {
         String text = e.getMessage();
         if (text == null || text.trim().isEmpty()) return e.getClass().getSimpleName();
-        if (text.length() > 120) return text.substring(0, 120);
+        if (text.length() > 160) return text.substring(0, 160);
         return text;
     }
 
@@ -287,18 +270,19 @@ public class MainActivity extends Activity {
         Calendar calendar = Calendar.getInstance();
         calendar.set(Calendar.HOUR_OF_DAY, selectedHour);
         calendar.set(Calendar.MINUTE, selectedMinute);
+        calendar.set(Calendar.SECOND, 0);
+        calendar.set(Calendar.MILLISECOND, 0);
         String formatted = DateFormat.getTimeInstance(
                 DateFormat.SHORT, Locale.getDefault()).format(calendar.getTime());
         timeText.setText(formatted);
     }
 
     private void saveAndSchedule() {
-        String category = String.valueOf(categorySpinner.getSelectedItem());
         String language = String.valueOf(languageSpinner.getSelectedItem());
         boolean enabled = enabledSwitch.isChecked();
 
         prefs.edit()
-                .putString("category", category)
+                .putString("category", FIXED_STYLE)
                 .putString("language", language)
                 .putInt("hour", selectedHour)
                 .putInt("minute", selectedMinute)
@@ -307,7 +291,7 @@ public class MainActivity extends Activity {
 
         if (enabled) {
             DailyMessageReceiver.scheduleNext(this);
-            Toast.makeText(this, "Daily notification scheduled ✅", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Daily AI notification scheduled ✅", Toast.LENGTH_SHORT).show();
         } else {
             DailyMessageReceiver.cancel(this);
             Toast.makeText(this, "Daily notification disabled", Toast.LENGTH_SHORT).show();
@@ -319,13 +303,12 @@ public class MainActivity extends Activity {
         if (statusText == null) return;
 
         boolean enabled = prefs.getBoolean("enabled", false);
-        String category = prefs.getString("category", "Random");
         String language = prefs.getString("language", "Burmese + English");
         String lastStatus = prefs.getString("last_status", "Not run yet");
 
         StringBuilder text = new StringBuilder();
         text.append("Status: ").append(enabled ? "ON ✅" : "OFF ❌");
-        text.append("\nCategory: ").append(category);
+        text.append("\nAI Style: ").append(FIXED_STYLE);
         text.append("\nLanguage: ").append(language);
         text.append("\nNext scheduled time: ").append(nextTimeText());
         text.append("\nLast AI status: ").append(lastStatus);
@@ -369,7 +352,9 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(Settings.ACTION_SETTINGS));
             }
         } else {
-            Toast.makeText(this, "Exact alarm access is not required on this Android version.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this,
+                    "Exact alarm access is not required on this Android version.",
+                    Toast.LENGTH_LONG).show();
         }
     }
 

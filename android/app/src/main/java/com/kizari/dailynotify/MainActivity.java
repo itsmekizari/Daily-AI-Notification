@@ -31,6 +31,7 @@ public class MainActivity extends Activity {
     private static final String PREFS = "daily_ai_prefs";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 5001;
 
+    private static final String FIXED_STYLE = "Love Teasing";
     private static final String[] LANGUAGES = {
             "Burmese + English", "Burmese only", "English only"
     };
@@ -67,7 +68,9 @@ public class MainActivity extends Activity {
     private void ensureDeviceId() {
         String id = prefs.getString("device_id", null);
         if (id == null || id.trim().isEmpty()) {
-            prefs.edit().putString("device_id", UUID.randomUUID().toString()).apply();
+            prefs.edit()
+                    .putString("device_id", UUID.randomUUID().toString())
+                    .apply();
         }
     }
 
@@ -89,7 +92,9 @@ public class MainActivity extends Activity {
         root.addView(title, matchWrap());
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("သတ်မှတ်ထားတဲ့အချိန်မှာ AI message တက်မယ်။ ပြီးတာနဲ့ နောက်တစ်ရက်စာကို အလိုအလျောက်ကြို generate လုပ်မယ်");
+        subtitle.setText(
+                "သတ်မှတ်ထားတဲ့အချိန်မှာ AI message တက်မယ်။ "
+                        + "notification တက်ပြီးတာနဲ့ နောက်စာကို အလိုအလျောက် generate လုပ်မယ်");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         root.addView(subtitle, marginParams(0, 6, 0, 22));
@@ -104,7 +109,9 @@ public class MainActivity extends Activity {
         root.addView(label("Language"), marginParams(0, 18, 0, 4));
         languageSpinner = new Spinner(this);
         ArrayAdapter<String> languageAdapter = new ArrayAdapter<>(
-                this, android.R.layout.simple_spinner_item, LANGUAGES);
+                this,
+                android.R.layout.simple_spinner_item,
+                LANGUAGES);
         languageAdapter.setDropDownViewResource(
                 android.R.layout.simple_spinner_dropdown_item);
         languageSpinner.setAdapter(languageAdapter);
@@ -139,7 +146,8 @@ public class MainActivity extends Activity {
                     "🤭 Test",
                     "စမ်းသပ် notification အောင်မြင်ပါတယ်!\n\nTest notification works!");
             if (!shown) {
-                Toast.makeText(this,
+                Toast.makeText(
+                        this,
                         "Notification permission is blocked.",
                         Toast.LENGTH_LONG).show();
             }
@@ -196,7 +204,8 @@ public class MainActivity extends Activity {
         calendar.set(Calendar.HOUR_OF_DAY, selectedHour);
         calendar.set(Calendar.MINUTE, selectedMinute);
         String formatted = DateFormat.getTimeInstance(
-                DateFormat.SHORT, Locale.getDefault()).format(calendar.getTime());
+                DateFormat.SHORT,
+                Locale.getDefault()).format(calendar.getTime());
         timeText.setText(formatted);
     }
 
@@ -205,29 +214,32 @@ public class MainActivity extends Activity {
         boolean enabled = enabledSwitch.isChecked();
 
         prefs.edit()
-                .putString("category", "Love Teasing")
+                .putString("category", FIXED_STYLE)
                 .putString("language", language)
                 .putInt("hour", selectedHour)
                 .putInt("minute", selectedMinute)
                 .putBoolean("enabled", enabled)
-                // A new language/time setting should not reuse an old cached message.
                 .remove("next_my")
                 .remove("next_en")
                 .remove("next_language")
+                .remove("next_generated_at")
                 .apply();
 
         if (enabled) {
             DailyMessageReceiver.scheduleNext(this);
             DailyMessageReceiver.enqueuePrefetch(this);
-            Toast.makeText(this,
-                    "Daily notification scheduled ✅\nNext AI message is generating automatically.",
+            Toast.makeText(
+                    this,
+                    "Scheduled ✅\nThe next AI message is generating automatically.",
                     Toast.LENGTH_SHORT).show();
         } else {
             DailyMessageReceiver.cancel(this);
-            Toast.makeText(this,
+            Toast.makeText(
+                    this,
                     "Daily notification disabled",
                     Toast.LENGTH_SHORT).show();
         }
+
         updateStatus();
     }
 
@@ -237,39 +249,50 @@ public class MainActivity extends Activity {
         boolean enabled = prefs.getBoolean("enabled", false);
         String language = prefs.getString("language", "Burmese + English");
         String lastStatus = prefs.getString("last_status", "Not run yet");
+        String lastError = prefs.getString("last_error", "");
         boolean hasNext = !prefs.getString("next_my", "").trim().isEmpty()
                 || !prefs.getString("next_en", "").trim().isEmpty();
 
         StringBuilder text = new StringBuilder();
         text.append("Status: ").append(enabled ? "ON ✅" : "OFF ❌");
-        text.append("\nAI Style: Love Teasing");
+        text.append("\nAI Style: ").append(FIXED_STYLE);
         text.append("\nLanguage: ").append(language);
         text.append("\nNext scheduled time: ").append(nextTimeText());
-        text.append("\nNext message ready: ").append(hasNext ? "YES ✅" : "Generating…");
+        text.append("\nNext message ready: ")
+                .append(hasNext ? "YES ✅" : "Generating…");
         text.append("\nLast AI status: ").append(lastStatus);
+        if (!lastError.isEmpty()) {
+            text.append("\nLast error: ").append(lastError);
+        }
         statusText.setText(text.toString());
     }
 
     private String nextTimeText() {
-        if (!prefs.getBoolean("enabled", false)) return "Not scheduled";
+        if (!prefs.getBoolean("enabled", false)) {
+            return "Not scheduled";
+        }
 
         Calendar calendar = Calendar.getInstance();
         calendar.set(Calendar.HOUR_OF_DAY, selectedHour);
         calendar.set(Calendar.MINUTE, selectedMinute);
         calendar.set(Calendar.SECOND, 0);
         calendar.set(Calendar.MILLISECOND, 0);
+
         if (calendar.getTimeInMillis() <= System.currentTimeMillis()) {
             calendar.add(Calendar.DAY_OF_YEAR, 1);
         }
+
         return DateFormat.getDateTimeInstance(
-                DateFormat.MEDIUM, DateFormat.SHORT, Locale.getDefault())
+                        DateFormat.MEDIUM,
+                        DateFormat.SHORT,
+                        Locale.getDefault())
                 .format(new Date(calendar.getTimeInMillis()));
     }
 
     private void requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
-                        PackageManager.PERMISSION_GRANTED) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(
                     new String[]{Manifest.permission.POST_NOTIFICATIONS},
                     NOTIFICATION_PERMISSION_REQUEST);
@@ -287,7 +310,8 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(Settings.ACTION_SETTINGS));
             }
         } else {
-            Toast.makeText(this,
+            Toast.makeText(
+                    this,
                     "Exact alarm access is not required on this Android version.",
                     Toast.LENGTH_LONG).show();
         }

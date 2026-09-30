@@ -24,7 +24,7 @@ public class DailyMessageReceiver extends BroadcastReceiver {
 
     private static final String TAG = "DailyAINotify";
     private static final String PREFS = "daily_ai_prefs";
-    private static final String WORK_NAME = "daily_ai_prefetch_work";
+    private static final String WORK_NAME = "daily_ai_next_message";
     private static final String ALARM_ACTION =
             "com.kizari.dailynotify.DAILY_ALARM";
     private static final String FIXED_STYLE = "Love Teasing";
@@ -39,24 +39,10 @@ public class DailyMessageReceiver extends BroadcastReceiver {
                 PREFS, Context.MODE_PRIVATE);
 
         if (!prefs.getBoolean("enabled", false)) {
-            Log.i(TAG, "Alarm received but app is disabled");
             return;
         }
 
-        Log.i(TAG, "Daily alarm received");
-
-        // Today's notification uses the message that was generated earlier.
-        showCachedMessage(appContext, prefs);
-
-        // Schedule the next day's alarm first, then quietly pre-generate the
-        // NEXT message immediately after today's notification.
-        scheduleNext(appContext);
-        enqueuePrefetch(appContext);
-    }
-
-    private static void showCachedMessage(
-            Context context,
-            SharedPreferences prefs) {
+        Log.i(TAG, "Scheduled alarm fired");
 
         String language = prefs.getString(
                 "language", "Burmese + English");
@@ -64,35 +50,43 @@ public class DailyMessageReceiver extends BroadcastReceiver {
         String myText = prefs.getString("next_my", "").trim();
         String enText = prefs.getString("next_en", "").trim();
 
+        boolean cached = !myText.isEmpty() || !enText.isEmpty();
         String message = formatMessage(myText, enText, cachedLanguage);
 
         if (message.isEmpty()) {
-            // First-run or a rare generation failure. Show a safe fallback now,
-            // then the worker will generate the next real AI message.
             String[] fallback = FallbackMessages.get(FIXED_STYLE);
             message = formatMessage(fallback[0], fallback[1], language);
             prefs.edit()
-                    .putString("last_status", "No cached AI message - fallback shown")
+                    .putString("last_status", "Cached AI message missing; fallback shown")
                     .apply();
         } else {
             prefs.edit()
-                    .putString("last_status", "Cached AI message notified")
+                    .putString("last_status", "AI message notified")
+                    .remove("last_error")
                     .apply();
         }
 
+        // The current message is posted exactly once.
         NotificationHelper.show(
-                context,
+                appContext,
                 "😏 Love Teasing",
                 message);
 
-        // Consume the cached message so a failed next generation can never
-        // accidentally repeat yesterday's message.
+        // Consume the current cache BEFORE starting generation for the next one.
         prefs.edit()
                 .remove("next_my")
                 .remove("next_en")
                 .remove("next_language")
                 .remove("next_generated_at")
                 .apply();
+
+        // The notification does not need to be dismissed by the user.
+        // As soon as it is posted, the next AI message starts generating quietly.
+        scheduleNext(appContext);
+        enqueuePrefetch(appContext);
+
+        Log.i(TAG, "Current notification posted (cached=" + cached
+                + "); next message generation started automatically");
     }
 
     private static String formatMessage(
@@ -104,15 +98,18 @@ public class DailyMessageReceiver extends BroadcastReceiver {
         if (enText == null) enText = "";
         if (language == null) language = "Burmese + English";
 
+        myText = myText.trim();
+        enText = enText.trim();
+
         if ("Burmese only".equals(language)) {
-            return myText.trim();
+            return myText;
         }
         if ("English only".equals(language)) {
-            return enText.trim();
+            return enText;
         }
-        if (myText.trim().isEmpty()) return enText.trim();
-        if (enText.trim().isEmpty()) return myText.trim();
-        return myText.trim() + "\n\n" + enText.trim();
+        if (myText.isEmpty()) return enText;
+        if (enText.isEmpty()) return myText;
+        return myText + "\n\n" + enText;
     }
 
     public static void ensurePrefetched(Context context) {
@@ -149,7 +146,7 @@ public class DailyMessageReceiver extends BroadcastReceiver {
                         .setConstraints(constraints)
                         .setBackoffCriteria(
                                 BackoffPolicy.LINEAR,
-                                5,
+                                15,
                                 TimeUnit.SECONDS);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -159,10 +156,8 @@ public class DailyMessageReceiver extends BroadcastReceiver {
 
         WorkManager.getInstance(context).enqueueUniqueWork(
                 WORK_NAME,
-                ExistingWorkPolicy.REPLACE,
+                ExistingWorkPolicy.KEEP,
                 builder.build());
-
-        Log.i(TAG, "Next-message prefetch enqueued");
     }
 
     public static void scheduleNext(Context context) {
@@ -170,7 +165,6 @@ public class DailyMessageReceiver extends BroadcastReceiver {
 
         SharedPreferences prefs = context.getSharedPreferences(
                 PREFS, Context.MODE_PRIVATE);
-
         if (!prefs.getBoolean("enabled", false)) return;
 
         int hour = prefs.getInt("hour", 8);
@@ -200,23 +194,20 @@ public class DailyMessageReceiver extends BroadcastReceiver {
                             AlarmManager.RTC_WAKEUP,
                             triggerAt,
                             pendingIntent);
-                    Log.i(TAG, "Exact alarm scheduled for " + calendar.getTime());
                 } else {
                     alarmManager.setAndAllowWhileIdle(
                             AlarmManager.RTC_WAKEUP,
                             triggerAt,
                             pendingIntent);
-                    Log.w(TAG, "Exact alarm permission missing; inexact alarm scheduled");
                 }
             } else {
                 alarmManager.setExactAndAllowWhileIdle(
                         AlarmManager.RTC_WAKEUP,
                         triggerAt,
                         pendingIntent);
-                Log.i(TAG, "Exact alarm scheduled for " + calendar.getTime());
             }
         } catch (SecurityException e) {
-            Log.e(TAG, "Exact alarm scheduling failed", e);
+            Log.e(TAG, "Exact alarm unavailable; using inexact alarm", e);
             alarmManager.setAndAllowWhileIdle(
                     AlarmManager.RTC_WAKEUP,
                     triggerAt,

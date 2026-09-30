@@ -4,14 +4,14 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.util.Log;
 
 public class BootReceiver extends BroadcastReceiver {
 
-    private static final String TAG = "DailyAINotify";
     private static final String PREFS = "daily_ai_prefs";
+
     private static final String ACTION_TIME_SET = "android.intent.action.TIME_SET";
-    private static final String ACTION_TIMEZONE_CHANGED = "android.intent.action.TIMEZONE_CHANGED";
+    private static final String ACTION_TIMEZONE_CHANGED =
+            "android.intent.action.TIMEZONE_CHANGED";
     private static final String ACTION_EXACT_ALARM_PERMISSION_STATE_CHANGED =
             "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED";
 
@@ -30,13 +30,11 @@ public class BootReceiver extends BroadcastReceiver {
 
         Context appContext = context.getApplicationContext();
         SharedPreferences prefs = appContext.getSharedPreferences(
-                PREFS,
-                Context.MODE_PRIVATE);
+                PREFS, Context.MODE_PRIVATE);
 
         if (prefs.getBoolean("enabled", false)) {
             DailyMessageReceiver.scheduleNext(appContext);
             DailyMessageReceiver.ensurePrefetched(appContext);
-            Log.i(TAG, "Rescheduled and checked next message after: " + action);
         }
     }
 }

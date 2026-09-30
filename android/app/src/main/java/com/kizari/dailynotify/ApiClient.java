@@ -21,21 +21,31 @@ public final class ApiClient {
 
     public static JSONObject generateMessage(
             String deviceId,
-            String category,
-            String language,
-            long timeoutMs
+            String style,
+            String language
     ) throws Exception {
+        return generateMessage(deviceId, style, language, 30000L);
+    }
+
+    public static JSONObject generateMessage(
+            String deviceId,
+            String style,
+            String language,
+            long totalTimeoutMs
+    ) throws Exception {
+        if (totalTimeoutMs < 1000L) {
+            totalTimeoutMs = 1000L;
+        }
 
         HttpURLConnection connection = null;
+        long deadline = System.currentTimeMillis() + totalTimeoutMs;
+
         try {
             URL url = new URL(API_URL);
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
-            int totalTimeout = (int) Math.max(1000L, Math.min(29000L, timeoutMs));
-            int connectTimeout = Math.min(5000, totalTimeout);
-            int readTimeout = Math.max(1000, totalTimeout - connectTimeout);
-            connection.setConnectTimeout(connectTimeout);
-            connection.setReadTimeout(readTimeout);
+            connection.setConnectTimeout((int) Math.min(8000L, totalTimeoutMs));
+            connection.setReadTimeout((int) Math.min(20000L, totalTimeoutMs));
             connection.setDoOutput(true);
             connection.setUseCaches(false);
             connection.setRequestProperty(
@@ -45,7 +55,7 @@ public final class ApiClient {
 
             JSONObject body = new JSONObject();
             body.put("device_id", deviceId);
-            body.put("category", category);
+            body.put("category", style);
             body.put("language", language);
 
             byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
@@ -54,6 +64,10 @@ public final class ApiClient {
             try (OutputStream output = connection.getOutputStream()) {
                 output.write(payload);
                 output.flush();
+            }
+
+            if (System.currentTimeMillis() >= deadline) {
+                throw new IOException("AI request exceeded 30 seconds");
             }
 
             int code = connection.getResponseCode();
@@ -71,12 +85,18 @@ public final class ApiClient {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     result.append(line);
+                    if (System.currentTimeMillis() >= deadline) {
+                        throw new IOException("AI response exceeded 30 seconds");
+                    }
                 }
             }
 
+            if (System.currentTimeMillis() >= deadline) {
+                throw new IOException("AI response exceeded 30 seconds");
+            }
+
             if (code < 200 || code >= 300) {
-                throw new IOException(
-                        "HTTP " + code + ": " + result.toString());
+                throw new IOException("HTTP " + code + ": " + result);
             }
 
             return new JSONObject(result.toString());

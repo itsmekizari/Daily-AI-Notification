@@ -22,7 +22,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle 9.1
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '9.1.0'
@@ -35,6 +35,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Daily-AI-Notification-debug-apk
+          name: Daily-AI-Notification-debug-apk-v1.2
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

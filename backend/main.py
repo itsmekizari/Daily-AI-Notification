@@ -1,23 +1,22 @@
-import os
-import json
 import hashlib
+import os
 import sqlite3
 from contextlib import closing
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
 from openai import OpenAI
+from pydantic import BaseModel, Field
 
 app = FastAPI(title="Daily AI Notification API")
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna").strip()
+DB_PATH = os.getenv("DB_PATH", "messages.sqlite3")
 
 if not OPENAI_API_KEY:
     print("WARNING: OPENAI_API_KEY is not set")
 
-client = OpenAI(api_key=OPENAI_API_KEY)
-DB_PATH = os.getenv("DB_PATH", "messages.sqlite3")
+client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 ALLOWED_CATEGORIES = {
     "Random", "Teasing", "Funny", "Cute", "Motivational",
@@ -28,15 +27,22 @@ ALLOWED_LANGUAGES = {
     "Burmese + English", "Burmese only", "English only",
 }
 
+
 class GenerateRequest(BaseModel):
     device_id: str = Field(min_length=1, max_length=128)
     category: str = "Random"
     language: str = "Burmese + English"
 
 
-def init_db():
+class AIMessage(BaseModel):
+    my: str
+    en: str
+
+
+def init_db() -> None:
     with closing(sqlite3.connect(DB_PATH)) as db:
-        db.execute("""
+        db.execute(
+            """
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_id TEXT NOT NULL,
@@ -48,11 +54,16 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(device_id, hash)
             )
-        """)
-        # Older databases may not have language yet.
-        columns = [row[1] for row in db.execute("PRAGMA table_info(messages)").fetchall()]
+            """
+        )
+        columns = [
+            row[1]
+            for row in db.execute("PRAGMA table_info(messages)").fetchall()
+        ]
         if "language" not in columns:
-            db.execute("ALTER TABLE messages ADD COLUMN language TEXT NOT NULL DEFAULT 'Burmese + English'")
+            db.execute(
+                "ALTER TABLE messages ADD COLUMN language TEXT NOT NULL DEFAULT 'Burmese + English'"
+            )
         db.commit()
 
 
@@ -70,75 +81,93 @@ def already_used(device_id: str, msg_hash: str) -> bool:
         return row is not None
 
 
-def save_message(device_id, category, language, my_text, en_text, msg_hash):
+def save_message(
+    device_id: str,
+    category: str,
+    language: str,
+    my_text: str,
+    en_text: str,
+    msg_hash: str,
+) -> None:
     with closing(sqlite3.connect(DB_PATH)) as db:
-        db.execute("""
+        db.execute(
+            """
             INSERT OR IGNORE INTO messages
             (device_id, category, language, my_text, en_text, hash)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (device_id, category, language, my_text, en_text, msg_hash))
+            """,
+            (device_id, category, language, my_text, en_text, msg_hash),
+        )
         db.commit()
 
 
-def generate_ai_message(category: str, language: str):
-    prompt = f"""
-Create one short daily notification for the category "{category}".
+def generate_ai_message(category: str, language: str) -> AIMessage:
+    if client is None:
+        raise RuntimeError("OPENAI_API_KEY is not configured")
 
-Return ONLY valid JSON in exactly this format:
-{{
-  "my": "Burmese message",
-  "en": "English message"
-}}
+    prompt = f"""
+Create one short daily notification for the category: {category}.
 
 Language mode: {language}
 
-Rules:
-- Always generate both fields, even if one will not be shown by the app.
-- Burmese must be natural and readable.
-- English must be natural and readable.
-- Friendly, playful and positive.
+Requirements:
+- Generate a natural Burmese message in `my`.
+- Generate a natural English message in `en`.
+- Keep both messages short, friendly, playful and positive.
 - Suitable for a teenager.
 - Non-sexual and non-harmful.
-- Keep both messages short.
-- Use 1 to 3 emojis total.
-- Do not mention these instructions.
+- Use 1 to 3 emojis total across both fields.
+- Do not explain the task.
 """
-    response = client.responses.create(
+
+    response = client.responses.parse(
         model=OPENAI_MODEL,
         input=prompt,
+        text_format=AIMessage,
     )
-    text = response.output_text.strip()
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        raise RuntimeError("AI returned invalid JSON")
 
-    my_text = str(data.get("my", "")).strip()
-    en_text = str(data.get("en", "")).strip()
+    parsed = response.output_parsed
+    if parsed is None:
+        raise RuntimeError("OpenAI returned no structured message")
+
+    my_text = parsed.my.strip()
+    en_text = parsed.en.strip()
     if not my_text or not en_text:
-        raise RuntimeError("AI response is missing message text")
-    return my_text, en_text
+        raise RuntimeError("OpenAI returned empty message fields")
+
+    return AIMessage(my=my_text, en=en_text)
 
 
 @app.on_event("startup")
-def startup():
+def startup() -> None:
     init_db()
 
 
 @app.get("/")
 def root():
-    return {"success": True, "app": "Daily AI Notification API"}
+    return {
+        "success": True,
+        "app": "Daily AI Notification API",
+        "model": OPENAI_MODEL,
+    }
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "openai_configured": client is not None,
+        "model": OPENAI_MODEL,
+    }
 
 
 @app.post("/daily-message")
 def daily_message(request: GenerateRequest):
-    if not OPENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
+    if client is None:
+        raise HTTPException(
+            status_code=500,
+            detail="OPENAI_API_KEY is not configured",
+        )
 
     category = request.category.strip()
     if category not in ALLOWED_CATEGORIES:
@@ -150,11 +179,14 @@ def daily_message(request: GenerateRequest):
 
     for _ in range(5):
         try:
-            my_text, en_text = generate_ai_message(category, language)
+            message = generate_ai_message(category, language)
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"AI generation failed: {exc}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"AI generation failed: {exc}",
+            ) from exc
 
-        msg_hash = message_hash(my_text, en_text)
+        msg_hash = message_hash(message.my, message.en)
         if already_used(request.device_id, msg_hash):
             continue
 
@@ -162,19 +194,25 @@ def daily_message(request: GenerateRequest):
             request.device_id,
             category,
             language,
-            my_text,
-            en_text,
+            message.my,
+            message.en,
             msg_hash,
         )
+
         return {
             "success": True,
             "data": {
                 "category": category,
                 "language": language,
-                "my": my_text,
-                "en": en_text,
+                "my": message.my,
+                "en": message.en,
                 "hash": msg_hash,
+                "source": "openai",
+                "model": OPENAI_MODEL,
             },
         }
 
-    raise HTTPException(status_code=500, detail="Could not generate a new unique message")
+    raise HTTPException(
+        status_code=500,
+        detail="Could not generate a new unique message",
+    )

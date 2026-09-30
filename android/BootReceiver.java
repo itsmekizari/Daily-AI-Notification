@@ -17,28 +17,21 @@ public class BootReceiver extends BroadcastReceiver {
             return;
         }
 
-        String action = intent.getAction();
+        if (!Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+            return;
+        }
 
-        if (Intent.ACTION_BOOT_COMPLETED.equals(action)
-                || Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(action)) {
+        Context appContext =
+                context.getApplicationContext();
 
-            Context appContext =
-                    context.getApplicationContext();
-
-            SharedPreferences prefs =
-                    appContext.getSharedPreferences(
-                            PREFS,
-                            Context.MODE_PRIVATE
-                    );
-
-            boolean enabled =
-                    prefs.getBoolean(KEY_ENABLED, false);
-
-            if (enabled) {
-                DailyMessageReceiver.scheduleNext(
-                        appContext
+        SharedPreferences prefs =
+                appContext.getSharedPreferences(
+                        PREFS,
+                        Context.MODE_PRIVATE
                 );
-            }
+
+        if (prefs.getBoolean(KEY_ENABLED, false)) {
+            DailyMessageReceiver.scheduleNext(appContext);
         }
     }
 }

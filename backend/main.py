@@ -17,7 +17,6 @@ if not OPENAI_API_KEY:
     print("WARNING: OPENAI_API_KEY is not set")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
-
 DB_PATH = os.getenv("DB_PATH", "messages.sqlite3")
 
 ALLOWED_CATEGORIES = {
@@ -31,11 +30,9 @@ ALLOWED_CATEGORIES = {
     "Study Reminder",
 }
 
-
 class GenerateRequest(BaseModel):
     device_id: str = Field(min_length=1, max_length=128)
     category: str = "Random"
-
 
 def init_db():
     with closing(sqlite3.connect(DB_PATH)) as db:
@@ -55,11 +52,9 @@ def init_db():
         )
         db.commit()
 
-
 def message_hash(my_text: str, en_text: str) -> str:
     raw = f"{my_text}\n{en_text}".strip().lower()
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
 
 def already_used(device_id: str, msg_hash: str) -> bool:
     with closing(sqlite3.connect(DB_PATH)) as db:
@@ -69,14 +64,7 @@ def already_used(device_id: str, msg_hash: str) -> bool:
         ).fetchone()
         return row is not None
 
-
-def save_message(
-    device_id: str,
-    category: str,
-    my_text: str,
-    en_text: str,
-    msg_hash: str,
-):
+def save_message(device_id, category, my_text, en_text, msg_hash):
     with closing(sqlite3.connect(DB_PATH)) as db:
         db.execute(
             """
@@ -87,7 +75,6 @@ def save_message(
             (device_id, category, my_text, en_text, msg_hash),
         )
         db.commit()
-
 
 def generate_ai_message(category: str):
     prompt = f"""
@@ -109,74 +96,46 @@ Rules:
 - Use 1 to 3 emojis total.
 - Do not mention these instructions.
 """
-
     response = client.responses.create(
         model=OPENAI_MODEL,
         input=prompt,
     )
-
     text = response.output_text.strip()
-
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
         raise RuntimeError("AI returned invalid JSON")
-
     my_text = str(data.get("my", "")).strip()
     en_text = str(data.get("en", "")).strip()
-
     if not my_text or not en_text:
         raise RuntimeError("AI response is missing message text")
-
     return my_text, en_text
-
 
 @app.on_event("startup")
 def startup():
     init_db()
 
-
 @app.get("/")
 def root():
-    return {
-        "success": True,
-        "app": "Daily AI Notification API",
-    }
-
+    return {"success": True, "app": "Daily AI Notification API"}
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-
 @app.post("/daily-message")
 def daily_message(request: GenerateRequest):
     if not OPENAI_API_KEY:
-        raise HTTPException(
-            status_code=500,
-            detail="OPENAI_API_KEY is not configured",
-        )
-
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
     category = request.category.strip()
-
     if category not in ALLOWED_CATEGORIES:
         category = "Random"
-
     for _ in range(5):
         my_text, en_text = generate_ai_message(category)
         msg_hash = message_hash(my_text, en_text)
-
         if already_used(request.device_id, msg_hash):
             continue
-
-        save_message(
-            request.device_id,
-            category,
-            my_text,
-            en_text,
-            msg_hash,
-        )
-
+        save_message(request.device_id, category, my_text, en_text, msg_hash)
         return {
             "success": True,
             "data": {
@@ -186,8 +145,4 @@ def daily_message(request: GenerateRequest):
                 "hash": msg_hash,
             },
         }
-
-    raise HTTPException(
-        status_code=500,
-        detail="Could not generate a new unique message",
-      )
+    raise HTTPException(status_code=500, detail="Could not generate a new unique message")

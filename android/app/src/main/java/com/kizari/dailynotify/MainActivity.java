@@ -13,19 +13,24 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
+
+import org.json.JSONObject;
 
 import java.text.DateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
 
@@ -49,6 +54,7 @@ public class MainActivity extends Activity {
     private TextView statusText;
     private int selectedHour = 8;
     private int selectedMinute = 0;
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -59,6 +65,24 @@ public class MainActivity extends Activity {
         loadPrefs();
         buildUi();
         requestNotificationPermissionIfNeeded();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (prefs != null) {
+            if (prefs.getBoolean("enabled", false)) {
+                DailyMessageReceiver.scheduleNext(this);
+            }
+            updateStatus();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        // Executor is intentionally left available for the process lifetime; a
+        // new activity instance can be created without interrupting a tiny API call.
     }
 
     private void ensureDeviceId() {
@@ -74,6 +98,7 @@ public class MainActivity extends Activity {
     }
 
     private void buildUi() {
+        ScrollView scrollView = new ScrollView(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(24), dp(22), dp(24), dp(24));
@@ -85,14 +110,12 @@ public class MainActivity extends Activity {
         root.addView(title, matchWrap());
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("နေ့စဉ် AI-generated notification");
+        subtitle.setText("နေ့စဉ် AI-generated Burmese + English notification");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         root.addView(subtitle, marginParams(0, 6, 0, 22));
 
-        TextView categoryLabel = label("Category");
-        root.addView(categoryLabel, marginParams(0, 0, 0, 4));
-
+        root.addView(label("Category"), marginParams(0, 0, 0, 4));
         categorySpinner = new Spinner(this);
         ArrayAdapter<String> categoryAdapter = new ArrayAdapter<>(
                 this, android.R.layout.simple_spinner_item, CATEGORIES);
@@ -102,9 +125,7 @@ public class MainActivity extends Activity {
         selectSpinner(categorySpinner, prefs.getString("category", "Random"));
         root.addView(categorySpinner, matchWrap());
 
-        TextView languageLabel = label("Language");
-        root.addView(languageLabel, marginParams(0, 18, 0, 4));
-
+        root.addView(label("Language"), marginParams(0, 18, 0, 4));
         languageSpinner = new Spinner(this);
         ArrayAdapter<String> languageAdapter = new ArrayAdapter<>(
                 this, android.R.layout.simple_spinner_item, LANGUAGES);
@@ -115,16 +136,13 @@ public class MainActivity extends Activity {
                 prefs.getString("language", "Burmese + English"));
         root.addView(languageSpinner, matchWrap());
 
-        TextView timeLabel = label("Daily time");
-        root.addView(timeLabel, marginParams(0, 18, 0, 4));
-
+        root.addView(label("Daily time"), marginParams(0, 18, 0, 4));
         timeText = new TextView(this);
         timeText.setTextSize(24);
         updateTimeText();
         root.addView(timeText, marginParams(0, 0, 0, 8));
 
-        Button setTime = new Button(this);
-        setTime.setText("SET TIME");
+        Button setTime = button("SET TIME");
         setTime.setOnClickListener(v -> showTimePicker());
         root.addView(setTime, matchWrap());
 
@@ -138,11 +156,22 @@ public class MainActivity extends Activity {
         save.setOnClickListener(v -> saveAndSchedule());
         root.addView(save, matchWrap());
 
+        Button generate = button("GENERATE AI NOW");
+        generate.setOnClickListener(v -> generateNow());
+        root.addView(generate, marginParams(0, 8, 0, 0));
+
         Button test = button("TEST NOTIFICATION");
-        test.setOnClickListener(v -> NotificationHelper.show(
-                this,
-                "🤭 Test",
-                "စမ်းသပ် notification အောင်မြင်ပါတယ်!\n\nTest notification works!"));
+        test.setOnClickListener(v -> {
+            boolean shown = NotificationHelper.show(
+                    this,
+                    "🤭 Test",
+                    "စမ်းသပ် notification အောင်မြင်ပါတယ်!\n\nTest notification works!");
+            if (!shown) {
+                Toast.makeText(this,
+                        "Notification permission is blocked.",
+                        Toast.LENGTH_LONG).show();
+            }
+        });
         root.addView(test, marginParams(0, 8, 0, 0));
 
         Button exactAlarm = button("OPEN EXACT ALARM SETTINGS");
@@ -158,7 +187,72 @@ public class MainActivity extends Activity {
         root.addView(statusText, marginParams(0, 18, 0, 0));
         updateStatus();
 
-        setContentView(root);
+        scrollView.addView(root);
+        setContentView(scrollView);
+    }
+
+    private void generateNow() {
+        String category = String.valueOf(categorySpinner.getSelectedItem());
+        String language = String.valueOf(languageSpinner.getSelectedItem());
+        boolean enabled = enabledSwitch.isChecked();
+
+        prefs.edit()
+                .putString("category", category)
+                .putString("language", language)
+                .putBoolean("enabled", enabled)
+                .apply();
+
+        Toast.makeText(this, "Generating AI message...", Toast.LENGTH_SHORT).show();
+
+        executor.execute(() -> {
+            try {
+                String deviceId = prefs.getString("device_id", UUID.randomUUID().toString());
+                JSONObject response = ApiClient.generateMessage(
+                        deviceId, category, language);
+                JSONObject data = response.optJSONObject("data");
+
+                if (!response.optBoolean("success", false) || data == null) {
+                    throw new IllegalStateException("API returned an unsuccessful response");
+                }
+
+                String my = data.optString("my", "").trim();
+                String en = data.optString("en", "").trim();
+                String message = formatMessage(my, en, language);
+
+                prefs.edit().putString("last_status", "AI success").apply();
+
+                runOnUiThread(() -> {
+                    boolean shown = NotificationHelper.show(this, category, message);
+                    Toast.makeText(this,
+                            shown ? "AI generated successfully ✅" : "AI generated, but notification is blocked",
+                            Toast.LENGTH_LONG).show();
+                    updateStatus();
+                });
+            } catch (Exception e) {
+                prefs.edit().putString("last_status", "AI error: " + safeError(e)).apply();
+                runOnUiThread(() -> {
+                    Toast.makeText(this,
+                            "AI error: " + safeError(e),
+                            Toast.LENGTH_LONG).show();
+                    updateStatus();
+                });
+            }
+        });
+    }
+
+    private String safeError(Exception e) {
+        String text = e.getMessage();
+        if (text == null || text.trim().isEmpty()) return e.getClass().getSimpleName();
+        if (text.length() > 120) return text.substring(0, 120);
+        return text;
+    }
+
+    private String formatMessage(String my, String en, String language) {
+        if ("Burmese only".equals(language)) return my;
+        if ("English only".equals(language)) return en;
+        if (my.isEmpty()) return en;
+        if (en.isEmpty()) return my;
+        return my + "\n\n" + en;
     }
 
     private TextView label(String text) {
@@ -184,18 +278,18 @@ public class MainActivity extends Activity {
                 },
                 selectedHour,
                 selectedMinute,
-                false
-        );
+                false);
         dialog.show();
     }
 
     private void updateTimeText() {
+        if (timeText == null) return;
         Calendar calendar = Calendar.getInstance();
         calendar.set(Calendar.HOUR_OF_DAY, selectedHour);
         calendar.set(Calendar.MINUTE, selectedMinute);
         String formatted = DateFormat.getTimeInstance(
                 DateFormat.SHORT, Locale.getDefault()).format(calendar.getTime());
-        if (timeText != null) timeText.setText(formatted);
+        timeText.setText(formatted);
     }
 
     private void saveAndSchedule() {
@@ -213,10 +307,11 @@ public class MainActivity extends Activity {
 
         if (enabled) {
             DailyMessageReceiver.scheduleNext(this);
+            Toast.makeText(this, "Daily notification scheduled ✅", Toast.LENGTH_SHORT).show();
         } else {
             DailyMessageReceiver.cancel(this);
+            Toast.makeText(this, "Daily notification disabled", Toast.LENGTH_SHORT).show();
         }
-
         updateStatus();
     }
 
@@ -226,12 +321,14 @@ public class MainActivity extends Activity {
         boolean enabled = prefs.getBoolean("enabled", false);
         String category = prefs.getString("category", "Random");
         String language = prefs.getString("language", "Burmese + English");
+        String lastStatus = prefs.getString("last_status", "Not run yet");
 
         StringBuilder text = new StringBuilder();
         text.append("Status: ").append(enabled ? "ON ✅" : "OFF ❌");
         text.append("\nCategory: ").append(category);
         text.append("\nLanguage: ").append(language);
         text.append("\nNext scheduled time: ").append(nextTimeText());
+        text.append("\nLast AI status: ").append(lastStatus);
         statusText.setText(text.toString());
     }
 
@@ -271,6 +368,8 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
                 startActivity(new Intent(Settings.ACTION_SETTINGS));
             }
+        } else {
+            Toast.makeText(this, "Exact alarm access is not required on this Android version.", Toast.LENGTH_LONG).show();
         }
     }
 

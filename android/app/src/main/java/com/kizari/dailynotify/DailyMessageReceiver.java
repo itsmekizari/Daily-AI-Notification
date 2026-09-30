@@ -7,7 +7,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
+import android.util.Log;
 
+import androidx.work.BackoffPolicy;
 import androidx.work.Constraints;
 import androidx.work.ExistingWorkPolicy;
 import androidx.work.NetworkType;
@@ -19,8 +21,8 @@ import java.util.concurrent.TimeUnit;
 
 public class DailyMessageReceiver extends BroadcastReceiver {
 
+    private static final String TAG = "DailyAINotify";
     private static final String PREFS = "daily_ai_prefs";
-    private static final String KEY_ENABLED = "enabled";
     private static final String WORK_NAME = "daily_ai_message_work";
     private static final int ALARM_REQUEST_CODE = 1001;
 
@@ -29,15 +31,15 @@ public class DailyMessageReceiver extends BroadcastReceiver {
         if (context == null) return;
 
         Context appContext = context.getApplicationContext();
-        SharedPreferences prefs =
-                appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        SharedPreferences prefs = appContext.getSharedPreferences(
+                PREFS, Context.MODE_PRIVATE);
 
-        if (!prefs.getBoolean(KEY_ENABLED, false)) {
+        if (!prefs.getBoolean("enabled", false)) {
+            Log.i(TAG, "Alarm received but app is disabled");
             return;
         }
 
-        // Schedule the next day immediately. The actual network work is handed
-        // to WorkManager so Android does not kill a long-running HTTP request.
+        Log.i(TAG, "Daily alarm received");
         scheduleNext(appContext);
         enqueueMessageWork(appContext);
     }
@@ -47,28 +49,30 @@ public class DailyMessageReceiver extends BroadcastReceiver {
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build();
 
-        OneTimeWorkRequest request =
-                new OneTimeWorkRequest.Builder(DailyMessageWorker.class)
-                        .setConstraints(constraints)
-                        .setBackoffCriteria(
-                                androidx.work.BackoffPolicy.EXPONENTIAL,
-                                30,
-                                TimeUnit.SECONDS
-                        )
-                        .build();
+        OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(
+                DailyMessageWorker.class)
+                .setConstraints(constraints)
+                .setBackoffCriteria(
+                        BackoffPolicy.EXPONENTIAL,
+                        30,
+                        TimeUnit.SECONDS)
+                .build();
 
         WorkManager.getInstance(context).enqueueUniqueWork(
                 WORK_NAME,
                 ExistingWorkPolicy.REPLACE,
-                request
-        );
+                request);
+
+        Log.i(TAG, "AI message work enqueued");
     }
 
     public static void scheduleNext(Context context) {
-        SharedPreferences prefs =
-                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (context == null) return;
 
-        if (!prefs.getBoolean(KEY_ENABLED, false)) return;
+        SharedPreferences prefs = context.getSharedPreferences(
+                PREFS, Context.MODE_PRIVATE);
+
+        if (!prefs.getBoolean("enabled", false)) return;
 
         int hour = prefs.getInt("hour", 8);
         int minute = prefs.getInt("minute", 0);
@@ -83,53 +87,60 @@ public class DailyMessageReceiver extends BroadcastReceiver {
             calendar.add(Calendar.DAY_OF_YEAR, 1);
         }
 
-        AlarmManager alarmManager =
-                (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        AlarmManager alarmManager = (AlarmManager) context.getSystemService(
+                Context.ALARM_SERVICE);
         if (alarmManager == null) return;
 
         PendingIntent pendingIntent = getPendingIntent(context);
+        long triggerAt = calendar.getTimeInMillis();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (alarmManager.canScheduleExactAlarms()) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerAt,
+                            pendingIntent);
+                    Log.i(TAG, "Exact alarm scheduled for " + calendar.getTime());
+                } else {
+                    alarmManager.setAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerAt,
+                            pendingIntent);
+                    Log.w(TAG, "Exact alarm permission missing; inexact alarm scheduled");
+                }
+            } else {
                 alarmManager.setExactAndAllowWhileIdle(
                         AlarmManager.RTC_WAKEUP,
-                        calendar.getTimeInMillis(),
-                        pendingIntent
-                );
-            } else {
-                alarmManager.setAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        calendar.getTimeInMillis(),
-                        pendingIntent
-                );
+                        triggerAt,
+                        pendingIntent);
+                Log.i(TAG, "Exact alarm scheduled for " + calendar.getTime());
             }
-        } else {
-            alarmManager.setExactAndAllowWhileIdle(
+        } catch (SecurityException e) {
+            Log.e(TAG, "Exact alarm scheduling failed", e);
+            alarmManager.setAndAllowWhileIdle(
                     AlarmManager.RTC_WAKEUP,
-                    calendar.getTimeInMillis(),
-                    pendingIntent
-            );
+                    triggerAt,
+                    pendingIntent);
         }
     }
 
     private static PendingIntent getPendingIntent(Context context) {
         Intent intent = new Intent(context, DailyMessageReceiver.class);
+        intent.setAction("com.kizari.dailynotify.DAILY_ALARM");
         return PendingIntent.getBroadcast(
                 context,
                 ALARM_REQUEST_CODE,
                 intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     public static void cancel(Context context) {
-        AlarmManager alarmManager =
-                (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-
+        AlarmManager alarmManager = (AlarmManager) context.getSystemService(
+                Context.ALARM_SERVICE);
         if (alarmManager != null) {
             alarmManager.cancel(getPendingIntent(context));
         }
-
         WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME);
     }
 }

@@ -3,18 +3,21 @@ package com.kizari.dailynotify;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
-public class ApiClient {
+public final class ApiClient {
 
     private static final String API_URL =
             "https://daily-ai-notification-api.onrender.com/daily-message";
+
+    private ApiClient() {
+    }
 
     public static JSONObject generateMessage(
             String deviceId,
@@ -22,60 +25,61 @@ public class ApiClient {
             String language
     ) throws Exception {
 
-        URL url = new URL(API_URL);
-        HttpURLConnection connection =
-                (HttpURLConnection) url.openConnection();
+        HttpURLConnection connection = null;
+        try {
+            URL url = new URL(API_URL);
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(30000);
+            connection.setReadTimeout(90000);
+            connection.setDoOutput(true);
+            connection.setUseCaches(false);
+            connection.setRequestProperty(
+                    "Content-Type", "application/json; charset=UTF-8");
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("Connection", "close");
 
-        connection.setRequestMethod("POST");
-        connection.setConnectTimeout(20000);
-        connection.setReadTimeout(60000);
-        connection.setDoOutput(true);
-        connection.setRequestProperty(
-                "Content-Type", "application/json; charset=UTF-8");
-        connection.setRequestProperty("Accept", "application/json");
+            JSONObject body = new JSONObject();
+            body.put("device_id", deviceId);
+            body.put("category", category);
+            body.put("language", language);
 
-        JSONObject body = new JSONObject();
-        body.put("device_id", deviceId);
-        body.put("category", category);
-        body.put("language", language);
+            byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
+            connection.setFixedLengthStreamingMode(payload.length);
 
-        try (OutputStream output = connection.getOutputStream()) {
-            output.write(body.toString().getBytes(StandardCharsets.UTF_8));
-        }
+            try (OutputStream output = connection.getOutputStream()) {
+                output.write(payload);
+                output.flush();
+            }
 
-        int responseCode = connection.getResponseCode();
-        InputStream inputStream =
-                responseCode >= 200 && responseCode < 300
-                        ? connection.getInputStream()
-                        : connection.getErrorStream();
+            int code = connection.getResponseCode();
+            InputStream stream = (code >= 200 && code < 300)
+                    ? connection.getInputStream()
+                    : connection.getErrorStream();
 
-        if (inputStream == null) {
-            connection.disconnect();
-            throw new IOException("HTTP " + responseCode);
-        }
+            if (stream == null) {
+                throw new IOException("HTTP " + code + " with empty response");
+            }
 
-        StringBuilder result = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                result.append(line);
+            StringBuilder result = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    result.append(line);
+                }
+            }
+
+            if (code < 200 || code >= 300) {
+                throw new IOException(
+                        "HTTP " + code + ": " + result.toString());
+            }
+
+            return new JSONObject(result.toString());
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
             }
         }
-
-        connection.disconnect();
-
-        if (responseCode < 200 || responseCode >= 300) {
-            throw new IOException("HTTP " + responseCode + ": " + result);
-        }
-
-        return new JSONObject(result.toString());
-    }
-
-    public static JSONObject generateMessage(
-            String deviceId,
-            String category
-    ) throws Exception {
-        return generateMessage(deviceId, category, "Burmese + English");
     }
 }

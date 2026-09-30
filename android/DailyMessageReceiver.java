@@ -6,7 +6,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
-import android.provider.Settings;
 
 import org.json.JSONObject;
 
@@ -17,45 +16,79 @@ import java.util.concurrent.Executors;
 
 public class DailyMessageReceiver extends BroadcastReceiver {
 
-    private static final String PREFS = "daily_ai_prefs";
-    private static final String KEY_CATEGORY = "category";
-    private static final String KEY_ENABLED = "enabled";
-    private static final String KEY_DEVICE_ID = "device_id";
-    private static final String KEY_HOUR = "hour";
-    private static final String KEY_MINUTE = "minute";
+    private static final String PREFS =
+            "daily_ai_prefs";
+
+    private static final String KEY_CATEGORY =
+            "category";
+
+    private static final String KEY_ENABLED =
+            "enabled";
+
+    private static final String KEY_DEVICE_ID =
+            "device_id";
+
+    private static final String KEY_HOUR =
+            "hour";
+
+    private static final String KEY_MINUTE =
+            "minute";
+
+    private static final int ALARM_REQUEST_CODE =
+            1001;
+
 
     @Override
-    public void onReceive(Context context, Intent intent) {
+    public void onReceive(
+            Context context,
+            Intent intent) {
 
         if (context == null) {
             return;
         }
 
+        Context appContext =
+                context.getApplicationContext();
+
         android.content.SharedPreferences prefs =
-                context.getSharedPreferences(
+                appContext.getSharedPreferences(
                         PREFS,
                         Context.MODE_PRIVATE
                 );
 
         boolean enabled =
-                prefs.getBoolean(KEY_ENABLED, false);
+                prefs.getBoolean(
+                        KEY_ENABLED,
+                        false
+                );
 
         if (!enabled) {
             return;
         }
 
         String category =
-                prefs.getString(KEY_CATEGORY, "Random");
+                prefs.getString(
+                        KEY_CATEGORY,
+                        "Random"
+                );
 
         String deviceId =
-                prefs.getString(KEY_DEVICE_ID, null);
+                prefs.getString(
+                        KEY_DEVICE_ID,
+                        null
+                );
 
-        if (deviceId == null || deviceId.trim().isEmpty()) {
+        if (deviceId == null
+                || deviceId.trim().isEmpty()) {
 
-            deviceId = UUID.randomUUID().toString();
+            deviceId =
+                    UUID.randomUUID().toString();
 
             prefs.edit()
-                    .putString(KEY_DEVICE_ID, deviceId)
+                    .putString(
+                            KEY_DEVICE_ID,
+                            deviceId
+                    )
                     .apply();
         }
 
@@ -76,12 +109,17 @@ public class DailyMessageReceiver extends BroadcastReceiver {
                         );
 
                 boolean success =
-                        response.optBoolean("success", false);
+                        response.optBoolean(
+                                "success",
+                                false
+                        );
 
                 if (success) {
 
                     JSONObject data =
-                            response.optJSONObject("data");
+                            response.optJSONObject(
+                                    "data"
+                            );
 
                     if (data != null) {
 
@@ -97,23 +135,24 @@ public class DailyMessageReceiver extends BroadcastReceiver {
                                         ""
                                 );
 
-                        if (!myText.isEmpty()
-                                || !enText.isEmpty()) {
+                        String message =
+                                myText;
 
-                            String notificationText =
-                                    myText;
+                        if (!enText.isEmpty()) {
 
-                            if (!enText.isEmpty()) {
-
-                                notificationText =
-                                        myText
-                                                + "\n\n"
-                                                + enText;
+                            if (!message.isEmpty()) {
+                                message += "\n\n";
                             }
 
-                            NotificationHelper.showNotification(
-                                    context,
-                                    notificationText
+                            message += enText;
+                        }
+
+                        if (!message.isEmpty()) {
+
+                            NotificationHelper.show(
+                                    appContext,
+                                    finalCategory,
+                                    message
                             );
                         }
                     }
@@ -123,21 +162,17 @@ public class DailyMessageReceiver extends BroadcastReceiver {
 
                 e.printStackTrace();
 
-                /*
-                 * API မရရင် local fallback
-                 * notification ပြနိုင်အောင်
-                 * ဒီနေရာမှာ fallback ထည့်နိုင်တယ်။
-                 */
+            } finally {
+
+                scheduleNext(appContext);
+                executor.shutdown();
             }
-
-            scheduleNext(context);
         });
-
-        executor.shutdown();
     }
 
 
-    public static void scheduleNext(Context context) {
+    public static void scheduleNext(
+            Context context) {
 
         android.content.SharedPreferences prefs =
                 context.getSharedPreferences(
@@ -146,17 +181,26 @@ public class DailyMessageReceiver extends BroadcastReceiver {
                 );
 
         boolean enabled =
-                prefs.getBoolean(KEY_ENABLED, false);
+                prefs.getBoolean(
+                        KEY_ENABLED,
+                        false
+                );
 
         if (!enabled) {
             return;
         }
 
         int hour =
-                prefs.getInt(KEY_HOUR, 8);
+                prefs.getInt(
+                        KEY_HOUR,
+                        8
+                );
 
         int minute =
-                prefs.getInt(KEY_MINUTE, 0);
+                prefs.getInt(
+                        KEY_MINUTE,
+                        0
+                );
 
         Calendar calendar =
                 Calendar.getInstance();
@@ -181,10 +225,6 @@ public class DailyMessageReceiver extends BroadcastReceiver {
                 0
         );
 
-        /*
-         * အချိန်ကျော်သွားပြီဆို
-         * နောက်နေ့ကိုရွှေ့
-         */
         if (calendar.getTimeInMillis()
                 <= System.currentTimeMillis()) {
 
@@ -195,9 +235,14 @@ public class DailyMessageReceiver extends BroadcastReceiver {
         }
 
         AlarmManager alarmManager =
-                (AlarmManager) context.getSystemService(
-                        Context.ALARM_SERVICE
-                );
+                (AlarmManager)
+                        context.getSystemService(
+                                Context.ALARM_SERVICE
+                        );
+
+        if (alarmManager == null) {
+            return;
+        }
 
         Intent intent =
                 new Intent(
@@ -208,17 +253,14 @@ public class DailyMessageReceiver extends BroadcastReceiver {
         PendingIntent pendingIntent =
                 PendingIntent.getBroadcast(
                         context,
-                        1001,
+                        ALARM_REQUEST_CODE,
                         intent,
                         PendingIntent.FLAG_UPDATE_CURRENT
                                 | PendingIntent.FLAG_IMMUTABLE
                 );
 
-        if (alarmManager == null) {
-            return;
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.S) {
 
             if (alarmManager.canScheduleExactAlarms()) {
 
@@ -230,10 +272,6 @@ public class DailyMessageReceiver extends BroadcastReceiver {
 
             } else {
 
-                /*
-                 * Exact alarm permission မရှိသေးရင်
-                 * inexact alarm သုံး
-                 */
                 alarmManager.setAndAllowWhileIdle(
                         AlarmManager.RTC_WAKEUP,
                         calendar.getTimeInMillis(),
@@ -252,12 +290,18 @@ public class DailyMessageReceiver extends BroadcastReceiver {
     }
 
 
-    public static void cancel(Context context) {
+    public static void cancel(
+            Context context) {
 
         AlarmManager alarmManager =
-                (AlarmManager) context.getSystemService(
-                        Context.ALARM_SERVICE
-                );
+                (AlarmManager)
+                        context.getSystemService(
+                                Context.ALARM_SERVICE
+                        );
+
+        if (alarmManager == null) {
+            return;
+        }
 
         Intent intent =
                 new Intent(
@@ -268,18 +312,14 @@ public class DailyMessageReceiver extends BroadcastReceiver {
         PendingIntent pendingIntent =
                 PendingIntent.getBroadcast(
                         context,
-                        1001,
+                        ALARM_REQUEST_CODE,
                         intent,
                         PendingIntent.FLAG_UPDATE_CURRENT
                                 | PendingIntent.FLAG_IMMUTABLE
                 );
 
-        if (alarmManager != null) {
-
-            alarmManager.cancel(
-                    pendingIntent
-            );
-        }
+        alarmManager.cancel(
+                pendingIntent
+        );
     }
 }
-``

@@ -6,7 +6,7 @@ import java.net.*;
 import java.nio.charset.StandardCharsets;
 
 public class ApiClient {
-    public static String API_URL = "https://YOUR-DOMAIN.example/daily_ai/api.php";
+    public static String API_URL = "https://daily-ai-notification-api.onrender.com/";
 
     public static JSONObject generateMessage(String deviceId, String category) throws Exception {
         URL url = new URL(API_URL);

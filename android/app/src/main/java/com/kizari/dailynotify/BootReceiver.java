@@ -34,7 +34,7 @@ public class BootReceiver extends BroadcastReceiver {
 
         if (prefs.getBoolean("enabled", false)) {
             DailyMessageReceiver.scheduleNext(appContext);
-            DailyMessageReceiver.ensurePrefetched(appContext);
+            DailyMessageReceiver.ensureNextMessage(appContext);
         }
     }
 }

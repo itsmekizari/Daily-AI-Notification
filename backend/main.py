@@ -18,10 +18,8 @@ if not OPENAI_API_KEY:
 
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
-ALLOWED_CATEGORIES = {
-    "Random", "Teasing", "Funny", "Cute", "Motivational",
-    "Good Morning", "Good Night", "Study Reminder",
-}
+FIXED_STYLE = "Love Teasing"
+ALLOWED_CATEGORIES = {FIXED_STYLE}
 
 ALLOWED_LANGUAGES = {
     "Burmese + English", "Burmese only", "English only",
@@ -106,7 +104,9 @@ def generate_ai_message(category: str, language: str) -> AIMessage:
         raise RuntimeError("OPENAI_API_KEY is not configured")
 
     prompt = f"""
-Create one short daily notification for the category: {category}.
+Create one short social-media-style daily notification with a fixed style: Love Teasing.
+
+The message should playfully tease the reader about love, crushes, or relationship situations without sexual content, insults, or harassment.
 
 Language mode: {language}
 
@@ -169,9 +169,7 @@ def daily_message(request: GenerateRequest):
             detail="OPENAI_API_KEY is not configured",
         )
 
-    category = request.category.strip()
-    if category not in ALLOWED_CATEGORIES:
-        category = "Random"
+    category = FIXED_STYLE
 
     language = request.language.strip()
     if language not in ALLOWED_LANGUAGES:

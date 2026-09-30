@@ -17,6 +17,7 @@ public class DailyMessageWorker extends Worker {
     private static final String TAG = "DailyAINotify";
     private static final String PREFS = "daily_ai_prefs";
     private static final String FIXED_STYLE = "Love Teasing";
+    private static final long GENERATION_DEADLINE_MS = 30000L;
 
     public DailyMessageWorker(
             @NonNull Context appContext,
@@ -36,6 +37,7 @@ public class DailyMessageWorker extends Worker {
             return Result.success();
         }
 
+        String category = FIXED_STYLE;
         String language = prefs.getString("language", "Burmese + English");
         String deviceId = prefs.getString("device_id", null);
 
@@ -44,10 +46,19 @@ public class DailyMessageWorker extends Worker {
             prefs.edit().putString("device_id", deviceId).apply();
         }
 
-        try {
-            Log.i(TAG, "Calling AI API. style=" + FIXED_STYLE + ", language=" + language);
+        long startedAt = System.currentTimeMillis();
+        long remainingMs = Math.max(1000L, GENERATION_DEADLINE_MS - (System.currentTimeMillis() - startedAt));
 
-            JSONObject response = ApiClient.generateMessage(deviceId, language);
+        try {
+            Log.i(TAG, "Calling AI API. category=" + category + ", language=" + language);
+
+            JSONObject response = ApiClient.generateMessage(
+                    deviceId, category, language, remainingMs);
+
+            if (System.currentTimeMillis() - startedAt > GENERATION_DEADLINE_MS) {
+                throw new java.util.concurrent.TimeoutException("AI generation exceeded 30 seconds");
+            }
+
             if (!response.optBoolean("success", false)) {
                 throw new IllegalStateException("API success=false: " + response);
             }
@@ -66,11 +77,10 @@ public class DailyMessageWorker extends Worker {
             }
 
             if (!NotificationHelper.show(context, "😏 Love Teasing", message)) {
-                throw new IllegalStateException("Notification could not be posted");
+                Log.e(TAG, "Notification could not be posted");
             }
 
             prefs.edit()
-                    .putString("category", FIXED_STYLE)
                     .putString("last_status", "AI success")
                     .putLong("last_success_at", System.currentTimeMillis())
                     .apply();
@@ -81,7 +91,9 @@ public class DailyMessageWorker extends Worker {
         } catch (Exception e) {
             Log.e(TAG, "AI request failed", e);
 
-            String[] fallback = FallbackMessages.get();
+            // Still deliver a notification so the daily schedule is not silently dead.
+            // This is clearly tracked as fallback in preferences.
+            String[] fallback = FallbackMessages.get(category);
             String fallbackMessage = formatMessage(
                     fallback[0], fallback[1], language);
 
@@ -91,7 +103,6 @@ public class DailyMessageWorker extends Worker {
                     fallbackMessage);
 
             prefs.edit()
-                    .putString("category", FIXED_STYLE)
                     .putString("last_status", shown
                             ? "AI unavailable - fallback used"
                             : "AI unavailable - notification blocked")

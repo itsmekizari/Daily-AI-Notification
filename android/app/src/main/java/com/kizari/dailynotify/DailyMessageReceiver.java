@@ -10,9 +10,7 @@ import android.os.Build;
 import android.util.Log;
 
 import androidx.work.BackoffPolicy;
-import androidx.work.Constraints;
 import androidx.work.ExistingWorkPolicy;
-import androidx.work.NetworkType;
 import androidx.work.OneTimeWorkRequest;
 import androidx.work.WorkManager;
 
@@ -24,6 +22,7 @@ public class DailyMessageReceiver extends BroadcastReceiver {
     private static final String TAG = "DailyAINotify";
     private static final String PREFS = "daily_ai_prefs";
     private static final String WORK_NAME = "daily_ai_message_work";
+    private static final String FIXED_STYLE = "Love Teasing";
     private static final int ALARM_REQUEST_CODE = 1001;
 
     @Override
@@ -41,22 +40,25 @@ public class DailyMessageReceiver extends BroadcastReceiver {
 
         Log.i(TAG, "Daily alarm received");
         scheduleNext(appContext);
+
+        // Post an immediate notification, then start AI generation right away.
+        NotificationHelper.showGenerating(appContext);
         enqueueMessageWork(appContext);
     }
 
     private static void enqueueMessageWork(Context context) {
-        Constraints constraints = new Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
-                .build();
-
-        OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(
+        OneTimeWorkRequest.Builder builder = new OneTimeWorkRequest.Builder(
                 DailyMessageWorker.class)
-                .setConstraints(constraints)
                 .setBackoffCriteria(
-                        BackoffPolicy.EXPONENTIAL,
-                        30,
-                        TimeUnit.SECONDS)
-                .build();
+                        BackoffPolicy.LINEAR,
+                        5,
+                        TimeUnit.SECONDS);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setExpedited(androidx.work.OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST);
+        }
+
+        OneTimeWorkRequest request = builder.build();
 
         WorkManager.getInstance(context).enqueueUniqueWork(
                 WORK_NAME,

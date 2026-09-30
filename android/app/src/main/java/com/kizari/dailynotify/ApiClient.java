@@ -21,7 +21,9 @@ public final class ApiClient {
 
     public static JSONObject generateMessage(
             String deviceId,
-            String language
+            String category,
+            String language,
+            long timeoutMs
     ) throws Exception {
 
         HttpURLConnection connection = null;
@@ -29,8 +31,11 @@ public final class ApiClient {
             URL url = new URL(API_URL);
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
-            connection.setConnectTimeout(30000);
-            connection.setReadTimeout(90000);
+            int totalTimeout = (int) Math.max(1000L, Math.min(29000L, timeoutMs));
+            int connectTimeout = Math.min(5000, totalTimeout);
+            int readTimeout = Math.max(1000, totalTimeout - connectTimeout);
+            connection.setConnectTimeout(connectTimeout);
+            connection.setReadTimeout(readTimeout);
             connection.setDoOutput(true);
             connection.setUseCaches(false);
             connection.setRequestProperty(
@@ -40,6 +45,7 @@ public final class ApiClient {
 
             JSONObject body = new JSONObject();
             body.put("device_id", deviceId);
+            body.put("category", category);
             body.put("language", language);
 
             byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
@@ -69,7 +75,8 @@ public final class ApiClient {
             }
 
             if (code < 200 || code >= 300) {
-                throw new IOException("HTTP " + code + ": " + result);
+                throw new IOException(
+                        "HTTP " + code + ": " + result.toString());
             }
 
             return new JSONObject(result.toString());

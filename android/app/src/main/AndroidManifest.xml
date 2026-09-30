@@ -11,8 +11,7 @@
         android:allowBackup="true"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
-        android:label="Daily AI Notification"
-        android:icon="@drawable/ic_launcher">
+        android:label="Daily AI Notification">
 
         <activity
             android:name=".MainActivity"

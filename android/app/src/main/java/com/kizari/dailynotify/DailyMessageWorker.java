@@ -33,34 +33,42 @@ public class DailyMessageWorker extends Worker {
                 PREFS, Context.MODE_PRIVATE);
 
         if (!prefs.getBoolean("enabled", false)) {
-            Log.i(TAG, "Worker skipped because notification is disabled");
+            Log.i(TAG, "Prefetch skipped because notification is disabled");
             return Result.success();
         }
 
-        String category = FIXED_STYLE;
-        String language = prefs.getString("language", "Burmese + English");
         String deviceId = prefs.getString("device_id", null);
-
         if (deviceId == null || deviceId.trim().isEmpty()) {
             deviceId = UUID.randomUUID().toString();
             prefs.edit().putString("device_id", deviceId).apply();
         }
 
+        String language = prefs.getString(
+                "language", "Burmese + English");
+
         long startedAt = System.currentTimeMillis();
-        long remainingMs = Math.max(1000L, GENERATION_DEADLINE_MS - (System.currentTimeMillis() - startedAt));
+        long remainingMs = Math.max(
+                1000L,
+                GENERATION_DEADLINE_MS
+                        - (System.currentTimeMillis() - startedAt));
 
         try {
-            Log.i(TAG, "Calling AI API. category=" + category + ", language=" + language);
+            Log.i(TAG, "Prefetching next AI message. language=" + language);
 
             JSONObject response = ApiClient.generateMessage(
-                    deviceId, category, language, remainingMs);
+                    deviceId,
+                    FIXED_STYLE,
+                    language,
+                    remainingMs);
 
-            if (System.currentTimeMillis() - startedAt > GENERATION_DEADLINE_MS) {
-                throw new java.util.concurrent.TimeoutException("AI generation exceeded 30 seconds");
+            if (System.currentTimeMillis() - startedAt >= GENERATION_DEADLINE_MS) {
+                throw new java.util.concurrent.TimeoutException(
+                        "AI generation exceeded 30 seconds");
             }
 
             if (!response.optBoolean("success", false)) {
-                throw new IllegalStateException("API success=false: " + response);
+                throw new IllegalStateException(
+                        "API success=false: " + response);
             }
 
             JSONObject data = response.optJSONObject("data");
@@ -70,58 +78,32 @@ public class DailyMessageWorker extends Worker {
 
             String myText = data.optString("my", "").trim();
             String enText = data.optString("en", "").trim();
-            String message = formatMessage(myText, enText, language);
-
-            if (message.trim().isEmpty()) {
+            if (myText.isEmpty() && enText.isEmpty()) {
                 throw new IllegalStateException("API returned empty message");
             }
 
-            if (!NotificationHelper.show(context, "😏 Love Teasing", message)) {
-                Log.e(TAG, "Notification could not be posted");
-            }
-
+            // Store the NEXT notification only. Do not show anything here.
             prefs.edit()
-                    .putString("last_status", "AI success")
+                    .putString("next_my", myText)
+                    .putString("next_en", enText)
+                    .putString("next_language", language)
+                    .putLong("next_generated_at", System.currentTimeMillis())
+                    .putString("last_status", "AI pre-generated next message")
                     .putLong("last_success_at", System.currentTimeMillis())
                     .apply();
 
-            Log.i(TAG, "AI notification posted successfully");
+            Log.i(TAG, "Next AI message saved. No notification posted by worker.");
             return Result.success();
 
         } catch (Exception e) {
-            Log.e(TAG, "AI request failed", e);
-
-            // Still deliver a notification so the daily schedule is not silently dead.
-            // This is clearly tracked as fallback in preferences.
-            String[] fallback = FallbackMessages.get(category);
-            String fallbackMessage = formatMessage(
-                    fallback[0], fallback[1], language);
-
-            boolean shown = NotificationHelper.show(
-                    context,
-                    "😏 Love Teasing",
-                    fallbackMessage);
-
+            Log.e(TAG, "AI pre-generation failed", e);
             prefs.edit()
-                    .putString("last_status", shown
-                            ? "AI unavailable - fallback used"
-                            : "AI unavailable - notification blocked")
+                    .putString("last_status", "AI pre-generation failed")
                     .putLong("last_attempt_at", System.currentTimeMillis())
                     .apply();
 
-            return shown ? Result.success() : Result.retry();
+            // WorkManager may retry when the short-lived API request fails.
+            return Result.retry();
         }
-    }
-
-    private String formatMessage(String myText, String enText, String language) {
-        if ("Burmese only".equals(language)) {
-            return myText;
-        }
-        if ("English only".equals(language)) {
-            return enText;
-        }
-        if (myText.isEmpty()) return enText;
-        if (enText.isEmpty()) return myText;
-        return myText + "\n\n" + enText;
     }
 }

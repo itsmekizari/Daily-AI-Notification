@@ -57,19 +57,11 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (prefs != null) {
-            if (prefs.getBoolean("enabled", false)) {
-                DailyMessageReceiver.scheduleNext(this);
-            }
-            updateStatus();
+        if (prefs != null && prefs.getBoolean("enabled", false)) {
+            DailyMessageReceiver.scheduleNext(this);
+            DailyMessageReceiver.ensurePrefetched(this);
         }
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        // Executor is intentionally left available for the process lifetime; a
-        // new activity instance can be created without interrupting a tiny API call.
+        updateStatus();
     }
 
     private void ensureDeviceId() {
@@ -97,14 +89,14 @@ public class MainActivity extends Activity {
         root.addView(title, matchWrap());
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("သတ်မှတ်ထားတဲ့အချိန်ရောက်ရင် notification တက်ပြီး AI က အလိုအလျောက် generate လုပ်ပေးမယ်");
+        subtitle.setText("သတ်မှတ်ထားတဲ့အချိန်မှာ AI message တက်မယ်။ ပြီးတာနဲ့ နောက်တစ်ရက်စာကို အလိုအလျောက်ကြို generate လုပ်မယ်");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         root.addView(subtitle, marginParams(0, 6, 0, 22));
 
         root.addView(label("AI Style"), marginParams(0, 0, 0, 4));
         TextView fixedStyle = new TextView(this);
-        fixedStyle.setText("😏 Love Teasing\nAI auto-generated only");
+        fixedStyle.setText("😏 Love Teasing\nFully AI-generated");
         fixedStyle.setTextSize(18);
         fixedStyle.setPadding(dp(12), dp(10), dp(12), dp(10));
         root.addView(fixedStyle, matchWrap());
@@ -218,30 +210,42 @@ public class MainActivity extends Activity {
                 .putInt("hour", selectedHour)
                 .putInt("minute", selectedMinute)
                 .putBoolean("enabled", enabled)
+                // A new language/time setting should not reuse an old cached message.
+                .remove("next_my")
+                .remove("next_en")
+                .remove("next_language")
                 .apply();
 
         if (enabled) {
             DailyMessageReceiver.scheduleNext(this);
-            Toast.makeText(this, "Daily notification scheduled ✅", Toast.LENGTH_SHORT).show();
+            DailyMessageReceiver.enqueuePrefetch(this);
+            Toast.makeText(this,
+                    "Daily notification scheduled ✅\nNext AI message is generating automatically.",
+                    Toast.LENGTH_SHORT).show();
         } else {
             DailyMessageReceiver.cancel(this);
-            Toast.makeText(this, "Daily notification disabled", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this,
+                    "Daily notification disabled",
+                    Toast.LENGTH_SHORT).show();
         }
         updateStatus();
     }
 
     private void updateStatus() {
-        if (statusText == null) return;
+        if (statusText == null || prefs == null) return;
 
         boolean enabled = prefs.getBoolean("enabled", false);
         String language = prefs.getString("language", "Burmese + English");
         String lastStatus = prefs.getString("last_status", "Not run yet");
+        boolean hasNext = !prefs.getString("next_my", "").trim().isEmpty()
+                || !prefs.getString("next_en", "").trim().isEmpty();
 
         StringBuilder text = new StringBuilder();
         text.append("Status: ").append(enabled ? "ON ✅" : "OFF ❌");
         text.append("\nAI Style: Love Teasing");
         text.append("\nLanguage: ").append(language);
         text.append("\nNext scheduled time: ").append(nextTimeText());
+        text.append("\nNext message ready: ").append(hasNext ? "YES ✅" : "Generating…");
         text.append("\nLast AI status: ").append(lastStatus);
         statusText.setText(text.toString());
     }
@@ -283,7 +287,9 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(Settings.ACTION_SETTINGS));
             }
         } else {
-            Toast.makeText(this, "Exact alarm access is not required on this Android version.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this,
+                    "Exact alarm access is not required on this Android version.",
+                    Toast.LENGTH_LONG).show();
         }
     }
 

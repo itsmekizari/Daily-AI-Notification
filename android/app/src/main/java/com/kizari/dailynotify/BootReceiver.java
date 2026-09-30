@@ -10,8 +10,6 @@ public class BootReceiver extends BroadcastReceiver {
 
     private static final String TAG = "DailyAINotify";
     private static final String PREFS = "daily_ai_prefs";
-
-    // Explicit action strings avoid compiler differences around framework constants.
     private static final String ACTION_TIME_SET = "android.intent.action.TIME_SET";
     private static final String ACTION_TIMEZONE_CHANGED = "android.intent.action.TIMEZONE_CHANGED";
     private static final String ACTION_EXACT_ALARM_PERMISSION_STATE_CHANGED =
@@ -19,9 +17,7 @@ public class BootReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (context == null || intent == null) {
-            return;
-        }
+        if (context == null || intent == null) return;
 
         String action = intent.getAction();
         boolean supported =
@@ -30,19 +26,17 @@ public class BootReceiver extends BroadcastReceiver {
                         || ACTION_TIMEZONE_CHANGED.equals(action)
                         || ACTION_EXACT_ALARM_PERMISSION_STATE_CHANGED.equals(action);
 
-        if (!supported) {
-            return;
-        }
+        if (!supported) return;
 
         Context appContext = context.getApplicationContext();
         SharedPreferences prefs = appContext.getSharedPreferences(
                 PREFS,
-                Context.MODE_PRIVATE
-        );
+                Context.MODE_PRIVATE);
 
         if (prefs.getBoolean("enabled", false)) {
             DailyMessageReceiver.scheduleNext(appContext);
-            Log.i(TAG, "Rescheduled after system event: " + action);
+            DailyMessageReceiver.ensurePrefetched(appContext);
+            Log.i(TAG, "Rescheduled and checked next message after: " + action);
         }
     }
 }

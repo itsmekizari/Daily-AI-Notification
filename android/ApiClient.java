@@ -1,47 +1,105 @@
 package com.kizari.dailynotify;
 
-import org.json.*;
-import java.io.*;
-import java.net.*;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 public class ApiClient {
-    public static String API_URL = "https://daily-ai-notification-api.onrender.com/";
 
-    public static JSONObject generateMessage(String deviceId, String category) throws Exception {
+    private static final String API_URL =
+            "https://daily-ai-notification-api.onrender.com/daily-message";
+
+    public static JSONObject generateMessage(
+            String deviceId,
+            String category
+    ) throws Exception {
+
         URL url = new URL(API_URL);
-        HttpURLConnection c = (HttpURLConnection) url.openConnection();
-        c.setRequestMethod("POST");
-        c.setConnectTimeout(15000);
-        c.setReadTimeout(30000);
-        c.setDoOutput(true);
-        c.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
 
-        JSONObject body = new JSONObject();
-        body.put("action", "generate");
-        body.put("device_id", deviceId);
-        body.put("category", category);
+        HttpURLConnection connection =
+                (HttpURLConnection) url.openConnection();
 
-        try (OutputStream os = c.getOutputStream()) {
-            os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+        connection.setRequestMethod("POST");
+        connection.setConnectTimeout(20000);
+        connection.setReadTimeout(60000);
+        connection.setDoOutput(true);
+
+        connection.setRequestProperty(
+                "Content-Type",
+                "application/json; charset=UTF-8"
+        );
+
+        connection.setRequestProperty(
+                "Accept",
+                "application/json"
+        );
+
+        JSONObject requestBody = new JSONObject();
+
+        requestBody.put("device_id", deviceId);
+        requestBody.put("category", category);
+
+        try (OutputStream outputStream =
+                     connection.getOutputStream()) {
+
+            outputStream.write(
+                    requestBody.toString()
+                            .getBytes(StandardCharsets.UTF_8)
+            );
         }
 
-        int code = c.getResponseCode();
-        InputStream in = code >= 200 && code < 300
-            ? c.getInputStream() : c.getErrorStream();
+        int responseCode = connection.getResponseCode();
 
-        String response;
-        try (BufferedReader r = new BufferedReader(
-            new InputStreamReader(in, StandardCharsets.UTF_8))) {
-            StringBuilder s = new StringBuilder();
+        InputStream inputStream;
+
+        if (responseCode >= 200 && responseCode < 300) {
+            inputStream = connection.getInputStream();
+        } else {
+            inputStream = connection.getErrorStream();
+        }
+
+        if (inputStream == null) {
+            throw new IOException(
+                    "Server returned HTTP " + responseCode
+            );
+        }
+
+        StringBuilder responseBuilder =
+                new StringBuilder();
+
+        try (BufferedReader reader =
+                     new BufferedReader(
+                             new InputStreamReader(
+                                     inputStream,
+                                     StandardCharsets.UTF_8
+                             )
+                     )) {
+
             String line;
-            while ((line = r.readLine()) != null) s.append(line);
-            response = s.toString();
+
+            while ((line = reader.readLine()) != null) {
+                responseBuilder.append(line);
+            }
         }
 
-        if (code < 200 || code >= 300) {
-            throw new IOException("HTTP " + code);
+        connection.disconnect();
+
+        if (responseCode < 200 || responseCode >= 300) {
+            throw new IOException(
+                    "HTTP " + responseCode +
+                    ": " + responseBuilder
+            );
         }
-        return new JSONObject(response);
+
+        return new JSONObject(
+                responseBuilder.toString()
+        );
     }
 }

@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import sqlite3
 from contextlib import closing
@@ -13,22 +14,23 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna").strip()
 DB_PATH = os.getenv("DB_PATH", "messages.sqlite3")
 
-if not OPENAI_API_KEY:
-    print("WARNING: OPENAI_API_KEY is not set")
-
-client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+client = OpenAI(
+    api_key=OPENAI_API_KEY,
+    timeout=25.0,
+    max_retries=1,
+) if OPENAI_API_KEY else None
 
 FIXED_STYLE = "Love Teasing"
-ALLOWED_CATEGORIES = {FIXED_STYLE}
-
 ALLOWED_LANGUAGES = {
-    "Burmese + English", "Burmese only", "English only",
+    "Burmese + English",
+    "Burmese only",
+    "English only",
 }
 
 
 class GenerateRequest(BaseModel):
     device_id: str = Field(min_length=1, max_length=128)
-    category: str = "Random"
+    category: str = FIXED_STYLE
     language: str = "Burmese + English"
 
 
@@ -55,8 +57,9 @@ def init_db() -> None:
             """
         )
         columns = [
-            row[1]
-            for row in db.execute("PRAGMA table_info(messages)").fetchall()
+            row[1] for row in db.execute(
+                "PRAGMA table_info(messages)"
+            ).fetchall()
         ]
         if "language" not in columns:
             db.execute(
@@ -99,41 +102,81 @@ def save_message(
         db.commit()
 
 
-def generate_ai_message(category: str, language: str) -> AIMessage:
+def generate_ai_message(language: str) -> AIMessage:
     if client is None:
         raise RuntimeError("OPENAI_API_KEY is not configured")
 
+    if language == "Burmese only":
+        language_rules = "Return a natural Burmese message in my. Set en to an empty string."
+    elif language == "English only":
+        language_rules = "Set my to an empty string. Return a natural English message in en."
+    else:
+        language_rules = "Return both a natural Burmese message in my and a natural English message in en."
+
     prompt = f"""
-Create one short social-media-style daily notification with a fixed style: Love Teasing.
+Create one short daily social-media-style notification.
 
-The message should playfully tease the reader about love, crushes, or relationship situations without sexual content, insults, or harassment.
+Fixed style: Love Teasing.
+Topic: playful teasing about crushes, dating, or everyday love situations.
 
-Language mode: {language}
+{language_rules}
 
-Requirements:
-- Generate a natural Burmese message in `my`.
-- Generate a natural English message in `en`.
-- Keep both messages short, friendly, playful and positive.
-- Suitable for a teenager.
-- Non-sexual and non-harmful.
-- Use 1 to 3 emojis total across both fields.
-- Do not explain the task.
+Rules:
+- Natural, funny, clever, slightly teasing.
+- It can make the reader feel lightly called out, but never bullied, harassed, or cruel.
+- Suitable for teenagers.
+- No sexual content.
+- No threats, self-harm, dangerous behavior, or insults targeting protected traits.
+- Keep the used fields very short, ideally 1-2 sentences each.
+- Use 0-2 emojis total.
+- Return ONLY JSON with exactly two string fields: my and en.
 """
 
-    response = client.responses.parse(
+    response = client.responses.create(
         model=OPENAI_MODEL,
         input=prompt,
-        text_format=AIMessage,
+        store=False,
+        reasoning={"effort": "none"},
+        max_output_tokens=180,
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "daily_notification",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "my": {"type": "string"},
+                        "en": {"type": "string"},
+                    },
+                    "required": ["my", "en"],
+                    "additionalProperties": False,
+                },
+            }
+        },
     )
 
-    parsed = response.output_parsed
-    if parsed is None:
-        raise RuntimeError("OpenAI returned no structured message")
+    raw = response.output_text.strip()
+    if not raw:
+        raise RuntimeError("OpenAI returned no text output")
 
-    my_text = parsed.my.strip()
-    en_text = parsed.en.strip()
-    if not my_text or not en_text:
-        raise RuntimeError("OpenAI returned empty message fields")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("OpenAI returned invalid JSON") from exc
+
+    message = AIMessage.model_validate(data)
+
+    my_text = message.my.strip()
+    en_text = message.en.strip()
+
+    if language == "Burmese only":
+        en_text = ""
+    elif language == "English only":
+        my_text = ""
+
+    if not my_text and not en_text:
+        raise RuntimeError("OpenAI returned empty message")
 
     return AIMessage(my=my_text, en=en_text)
 
@@ -169,19 +212,17 @@ def daily_message(request: GenerateRequest):
             detail="OPENAI_API_KEY is not configured",
         )
 
-    category = FIXED_STYLE
-
     language = request.language.strip()
     if language not in ALLOWED_LANGUAGES:
         language = "Burmese + English"
 
-    for _ in range(5):
+    for _ in range(3):
         try:
-            message = generate_ai_message(category, language)
+            message = generate_ai_message(language)
         except Exception as exc:
             raise HTTPException(
                 status_code=502,
-                detail=f"AI generation failed: {exc}",
+                detail=f"AI generation failed: {type(exc).__name__}: {exc}",
             ) from exc
 
         msg_hash = message_hash(message.my, message.en)
@@ -190,7 +231,7 @@ def daily_message(request: GenerateRequest):
 
         save_message(
             request.device_id,
-            category,
+            FIXED_STYLE,
             language,
             message.my,
             message.en,
@@ -200,7 +241,7 @@ def daily_message(request: GenerateRequest):
         return {
             "success": True,
             "data": {
-                "category": category,
+                "category": FIXED_STYLE,
                 "language": language,
                 "my": message.my,
                 "en": message.en,

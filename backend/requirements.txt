@@ -1,4 +1,4 @@
-fastapi
-uvicorn[standard]
-openai
-pydantic>=2
+fastapi>=0.115,<1
+uvicorn[standard]>=0.34,<1
+pydantic>=2.10,<3
+openai>=1.99,<3

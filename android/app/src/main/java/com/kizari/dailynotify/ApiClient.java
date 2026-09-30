@@ -18,11 +18,11 @@ public class ApiClient {
 
     public static JSONObject generateMessage(
             String deviceId,
-            String category
+            String category,
+            String language
     ) throws Exception {
 
         URL url = new URL(API_URL);
-
         HttpURLConnection connection =
                 (HttpURLConnection) url.openConnection();
 
@@ -30,60 +30,33 @@ public class ApiClient {
         connection.setConnectTimeout(20000);
         connection.setReadTimeout(60000);
         connection.setDoOutput(true);
-
         connection.setRequestProperty(
-                "Content-Type",
-                "application/json; charset=UTF-8"
-        );
-
-        connection.setRequestProperty(
-                "Accept",
-                "application/json"
-        );
+                "Content-Type", "application/json; charset=UTF-8");
+        connection.setRequestProperty("Accept", "application/json");
 
         JSONObject body = new JSONObject();
         body.put("device_id", deviceId);
         body.put("category", category);
+        body.put("language", language);
 
-        try (OutputStream output =
-                     connection.getOutputStream()) {
-            output.write(
-                    body.toString()
-                            .getBytes(StandardCharsets.UTF_8)
-            );
+        try (OutputStream output = connection.getOutputStream()) {
+            output.write(body.toString().getBytes(StandardCharsets.UTF_8));
         }
 
-        int responseCode =
-                connection.getResponseCode();
-
-        InputStream inputStream;
-
-        if (responseCode >= 200
-                && responseCode < 300) {
-            inputStream =
-                    connection.getInputStream();
-        } else {
-            inputStream =
-                    connection.getErrorStream();
-        }
+        int responseCode = connection.getResponseCode();
+        InputStream inputStream =
+                responseCode >= 200 && responseCode < 300
+                        ? connection.getInputStream()
+                        : connection.getErrorStream();
 
         if (inputStream == null) {
             connection.disconnect();
-            throw new IOException(
-                    "HTTP " + responseCode
-            );
+            throw new IOException("HTTP " + responseCode);
         }
 
-        StringBuilder result =
-                new StringBuilder();
-
-        try (BufferedReader reader =
-                     new BufferedReader(
-                             new InputStreamReader(
-                                     inputStream,
-                                     StandardCharsets.UTF_8
-                             )
-                     )) {
+        StringBuilder result = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 result.append(line);
@@ -92,16 +65,17 @@ public class ApiClient {
 
         connection.disconnect();
 
-        if (responseCode < 200
-                || responseCode >= 300) {
-            throw new IOException(
-                    "HTTP " + responseCode
-                            + ": " + result
-            );
+        if (responseCode < 200 || responseCode >= 300) {
+            throw new IOException("HTTP " + responseCode + ": " + result);
         }
 
-        return new JSONObject(
-                result.toString()
-        );
+        return new JSONObject(result.toString());
+    }
+
+    public static JSONObject generateMessage(
+            String deviceId,
+            String category
+    ) throws Exception {
+        return generateMessage(deviceId, category, "Burmese + English");
     }
 }

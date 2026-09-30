@@ -5,23 +5,23 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Build;
 
-import org.json.JSONObject;
+import androidx.work.Constraints;
+import androidx.work.ExistingWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.OneTimeWorkRequest;
+import androidx.work.WorkManager;
 
 import java.util.Calendar;
-import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class DailyMessageReceiver extends BroadcastReceiver {
 
     private static final String PREFS = "daily_ai_prefs";
-    private static final String KEY_CATEGORY = "category";
     private static final String KEY_ENABLED = "enabled";
-    private static final String KEY_DEVICE_ID = "device_id";
-    private static final String KEY_HOUR = "hour";
-    private static final String KEY_MINUTE = "minute";
+    private static final String WORK_NAME = "daily_ai_message_work";
     private static final int ALARM_REQUEST_CODE = 1001;
 
     @Override
@@ -29,89 +29,51 @@ public class DailyMessageReceiver extends BroadcastReceiver {
         if (context == null) return;
 
         Context appContext = context.getApplicationContext();
-
-        android.content.SharedPreferences prefs =
+        SharedPreferences prefs =
                 appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
 
-        boolean enabled = prefs.getBoolean(KEY_ENABLED, false);
-        if (!enabled) return;
-
-        String category = prefs.getString(KEY_CATEGORY, "Random");
-        String deviceId = prefs.getString(KEY_DEVICE_ID, null);
-
-        if (deviceId == null || deviceId.trim().isEmpty()) {
-            deviceId = UUID.randomUUID().toString();
-            prefs.edit().putString(KEY_DEVICE_ID, deviceId).apply();
+        if (!prefs.getBoolean(KEY_ENABLED, false)) {
+            return;
         }
 
-        String finalDeviceId = deviceId;
-        String finalCategory = category;
+        // Schedule the next day immediately. The actual network work is handed
+        // to WorkManager so Android does not kill a long-running HTTP request.
+        scheduleNext(appContext);
+        enqueueMessageWork(appContext);
+    }
 
-        ExecutorService executor = Executors.newSingleThreadExecutor();
+    private static void enqueueMessageWork(Context context) {
+        Constraints constraints = new Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build();
 
-        executor.execute(() -> {
-            try {
-                JSONObject response =
-                        ApiClient.generateMessage(
-                                finalDeviceId,
-                                finalCategory
-                        );
+        OneTimeWorkRequest request =
+                new OneTimeWorkRequest.Builder(DailyMessageWorker.class)
+                        .setConstraints(constraints)
+                        .setBackoffCriteria(
+                                androidx.work.BackoffPolicy.EXPONENTIAL,
+                                30,
+                                TimeUnit.SECONDS
+                        )
+                        .build();
 
-                boolean success =
-                        response.optBoolean("success", false);
-
-                if (success) {
-                    JSONObject data =
-                            response.optJSONObject("data");
-
-                    if (data != null) {
-                        String myText =
-                                data.optString("my", "");
-
-                        String enText =
-                                data.optString("en", "");
-
-                        String message = myText;
-
-                        if (!enText.isEmpty()) {
-                            if (!message.isEmpty()) {
-                                message += "\n\n";
-                            }
-                            message += enText;
-                        }
-
-                        if (!message.isEmpty()) {
-                            NotificationHelper.show(
-                                    appContext,
-                                    finalCategory,
-                                    message
-                            );
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            } finally {
-                scheduleNext(appContext);
-                executor.shutdown();
-            }
-        });
+        WorkManager.getInstance(context).enqueueUniqueWork(
+                WORK_NAME,
+                ExistingWorkPolicy.REPLACE,
+                request
+        );
     }
 
     public static void scheduleNext(Context context) {
-        android.content.SharedPreferences prefs =
+        SharedPreferences prefs =
                 context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
 
-        boolean enabled =
-                prefs.getBoolean(KEY_ENABLED, false);
+        if (!prefs.getBoolean(KEY_ENABLED, false)) return;
 
-        if (!enabled) return;
-
-        int hour = prefs.getInt(KEY_HOUR, 8);
-        int minute = prefs.getInt(KEY_MINUTE, 0);
+        int hour = prefs.getInt("hour", 8);
+        int minute = prefs.getInt("minute", 0);
 
         Calendar calendar = Calendar.getInstance();
-
         calendar.set(Calendar.HOUR_OF_DAY, hour);
         calendar.set(Calendar.MINUTE, minute);
         calendar.set(Calendar.SECOND, 0);
@@ -123,20 +85,9 @@ public class DailyMessageReceiver extends BroadcastReceiver {
 
         AlarmManager alarmManager =
                 (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-
         if (alarmManager == null) return;
 
-        Intent intent =
-                new Intent(context, DailyMessageReceiver.class);
-
-        PendingIntent pendingIntent =
-                PendingIntent.getBroadcast(
-                        context,
-                        ALARM_REQUEST_CODE,
-                        intent,
-                        PendingIntent.FLAG_UPDATE_CURRENT
-                                | PendingIntent.FLAG_IMMUTABLE
-                );
+        PendingIntent pendingIntent = getPendingIntent(context);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (alarmManager.canScheduleExactAlarms()) {
@@ -161,24 +112,24 @@ public class DailyMessageReceiver extends BroadcastReceiver {
         }
     }
 
+    private static PendingIntent getPendingIntent(Context context) {
+        Intent intent = new Intent(context, DailyMessageReceiver.class);
+        return PendingIntent.getBroadcast(
+                context,
+                ALARM_REQUEST_CODE,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+    }
+
     public static void cancel(Context context) {
         AlarmManager alarmManager =
                 (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
 
-        if (alarmManager == null) return;
+        if (alarmManager != null) {
+            alarmManager.cancel(getPendingIntent(context));
+        }
 
-        Intent intent =
-                new Intent(context, DailyMessageReceiver.class);
-
-        PendingIntent pendingIntent =
-                PendingIntent.getBroadcast(
-                        context,
-                        ALARM_REQUEST_CODE,
-                        intent,
-                        PendingIntent.FLAG_UPDATE_CURRENT
-                                | PendingIntent.FLAG_IMMUTABLE
-                );
-
-        alarmManager.cancel(pendingIntent);
+        WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME);
     }
 }

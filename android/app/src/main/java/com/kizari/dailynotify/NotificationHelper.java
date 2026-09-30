@@ -12,82 +12,50 @@ public class NotificationHelper {
     private static final String CHANNEL_ID = "daily_ai_messages";
     private static final String CHANNEL_NAME = "Daily AI Messages";
 
-    public static void show(
-            Context context,
-            String title,
-            String body
-    ) {
-        if (context == null) {
-            return;
-        }
+    public static void show(Context context, String title, String body) {
+        if (context == null) return;
 
         Context appContext = context.getApplicationContext();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (appContext.checkSelfPermission(
-                    android.Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED) {
-                return;
-            }
-        }
-
-        NotificationManager notificationManager =
-                (NotificationManager) appContext.getSystemService(
-                        Context.NOTIFICATION_SERVICE
-                );
-
-        if (notificationManager == null) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                appContext.checkSelfPermission(
+                        android.Manifest.permission.POST_NOTIFICATIONS) !=
+                        PackageManager.PERMISSION_GRANTED) {
             return;
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            if (!notificationManager.areNotificationsEnabled()) {
-                return;
-            }
+        NotificationManager manager =
+                (NotificationManager) appContext.getSystemService(
+                        Context.NOTIFICATION_SERVICE);
+        if (manager == null) return;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
+                !manager.areNotificationsEnabled()) {
+            return;
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel =
-                    new NotificationChannel(
-                            CHANNEL_ID,
-                            CHANNEL_NAME,
-                            NotificationManager.IMPORTANCE_DEFAULT
-                    );
-
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    CHANNEL_NAME,
+                    NotificationManager.IMPORTANCE_DEFAULT
+            );
             channel.setDescription(
-                    "Daily AI-generated Burmese and English messages"
-            );
-
-            notificationManager.createNotificationChannel(channel);
+                    "Daily AI-generated Burmese and English messages");
+            manager.createNotificationChannel(channel);
         }
 
-        Notification.Builder builder;
+        Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Notification.Builder(appContext, CHANNEL_ID)
+                : new Notification.Builder(appContext);
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            builder = new Notification.Builder(
-                    appContext,
-                    CHANNEL_ID
-            );
-        } else {
-            builder = new Notification.Builder(appContext);
-        }
-
-        builder
-                .setSmallIcon(com.kizari.dailynotify.R.drawable.ic_launcher)
+        builder.setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle(title)
                 .setContentText(body)
-                .setStyle(
-                        new Notification.BigTextStyle()
-                                .bigText(body)
-                )
+                .setStyle(new Notification.BigTextStyle().bigText(body))
                 .setAutoCancel(true);
 
-        int notificationId =
-                (int) (System.currentTimeMillis() & 0x7fffffff);
-
-        notificationManager.notify(
-                notificationId,
-                builder.build()
-        );
+        int id = (int) (System.currentTimeMillis() & 0x7fffffff);
+        manager.notify(id, builder.build());
     }
 }

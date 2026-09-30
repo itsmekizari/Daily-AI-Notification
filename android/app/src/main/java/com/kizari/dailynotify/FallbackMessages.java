@@ -1,9 +1,18 @@
 package com.kizari.dailynotify;
 
 public class FallbackMessages {
-    public static final String[] MESSAGES = {
-            "နည်းနည်းပြုံးလိုက် 😄|A tiny smile looks good on you. 😄",
-            "ဒီနေ့လည်း ကိုယ့် pace နဲ့သွားပါ 🌱|Go at your own pace today. 🌱",
-            "အလုပ်ပြီးရင် အနားယူဖို့ မမေ့နဲ့ ☕|Remember to rest after your work. ☕"
-    };
+    private FallbackMessages() {}
+
+    public static String get(String category) {
+        if ("Good Morning".equals(category)) {
+            return "မနက်ခင်းကောင်းပါစေ ☀️\n\nGood morning! Make today count.";
+        }
+        if ("Good Night".equals(category)) {
+            return "ညချမ်းသာပါစေ 🌙\n\nGood night! Rest well for tomorrow.";
+        }
+        if ("Motivational".equals(category)) {
+            return "တစ်ဆင့်ချင်း သွားပါ 💪\n\nKeep going, one step at a time.";
+        }
+        return "ဒီနေ့အတွက် message လေးတစ်ခု 😊\n\nHere is your little daily reminder.";
+    }
 }

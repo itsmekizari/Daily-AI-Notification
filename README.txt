@@ -1,25 +1,15 @@
-Daily AI Notification - FINAL PATCH
+Daily AI Notification - Logo Fix Files
 
-Behavior:
-1) The app has one fixed AI style: Love Teasing.
-2) When daily scheduling is enabled, the app automatically pre-generates the next message.
-3) At the exact scheduled time, the cached AI message is shown in one notification.
-4) Immediately after the notification is posted, the app starts generating the next message automatically.
-5) The next generation happens silently. It never creates a second notification.
-6) The Android client limits each AI HTTP generation to about 30 seconds.
-7) The backend uses GPT-5.6 Luna through the OpenAI Responses API with strict JSON output.
-8) Language choices remain: Burmese + English, Burmese only, English only.
-9) Only the Java/Android files and backend files included here should replace the matching files in the existing project.
+Put/replace these files at these exact paths in the GitHub repository:
 
-Replace these paths:
-android/app/src/main/java/com/kizari/dailynotify/MainActivity.java
-android/app/src/main/java/com/kizari/dailynotify/ApiClient.java
-android/app/src/main/java/com/kizari/dailynotify/DailyMessageReceiver.java
-android/app/src/main/java/com/kizari/dailynotify/DailyMessageWorker.java
-android/app/src/main/java/com/kizari/dailynotify/BootReceiver.java
-android/app/src/main/java/com/kizari/dailynotify/NotificationHelper.java
-android/app/src/main/java/com/kizari/dailynotify/FallbackMessages.java
-android/app/src/main/AndroidManifest.xml
-android/app/build.gradle
-backend/main.py
-backend/requirements.txt
+1. android/app/src/main/AndroidManifest.xml
+2. android/app/src/main/res/drawable/ic_launcher.xml
+3. android/app/src/main/res/drawable/ic_notification.xml
+4. android/app/src/main/java/com/kizari/dailynotify/NotificationHelper.java
+
+What this fixes:
+- Restores the app launcher icon instead of the generic Android icon.
+- Adds a roundIcon reference using the same app logo.
+- Uses a dedicated bot-style notification icon instead of the generic Android info icon.
+
+Do not delete backend/ or docs/ for this patch.

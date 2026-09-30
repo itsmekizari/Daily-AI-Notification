@@ -1,40 +1,96 @@
 package com.kizari.dailynotify;
 
-import android.app.*;
-import android.content.*;
-import android.os.*;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.content.Context;
+import android.content.pm.PackageManager;
+import android.os.Build;
 
 public class NotificationHelper {
-    private static final String CHANNEL_ID = "daily_ai_messages";
 
-    public static void show(Context context, String title, String body) {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
-                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+    private static final String CHANNEL_ID = "daily_ai_messages";
+    private static final String CHANNEL_NAME = "Daily AI Messages";
+
+    public static void show(
+            Context context,
+            String title,
+            String body
+    ) {
+        if (context == null) {
             return;
         }
 
-        NotificationManager nm =
-            (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        Context appContext = context.getApplicationContext();
 
-        if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel ch = new NotificationChannel(
-                CHANNEL_ID, "Daily AI Messages",
-                NotificationManager.IMPORTANCE_DEFAULT
-            );
-            nm.createNotificationChannel(ch);
+        // Android 13+ notification permission check
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (appContext.checkSelfPermission(
+                    android.Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED) {
+                return;
+            }
         }
 
-        Notification.Builder b = Build.VERSION.SDK_INT >= 26
-            ? new Notification.Builder(context, CHANNEL_ID)
-            : new Notification.Builder(context);
+        NotificationManager notificationManager =
+                (NotificationManager) appContext.getSystemService(
+                        Context.NOTIFICATION_SERVICE
+                );
 
-        b.setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(new Notification.BigTextStyle().bigText(body))
-            .setAutoCancel(true);
+        if (notificationManager == null) {
+            return;
+        }
 
-        nm.notify((int)(System.currentTimeMillis() & 0x7fffffff), b.build());
+        // Check whether notifications are disabled in system settings
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            if (!notificationManager.areNotificationsEnabled()) {
+                return;
+            }
+        }
+
+        // Create notification channel for Android 8+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel =
+                    new NotificationChannel(
+                            CHANNEL_ID,
+                            CHANNEL_NAME,
+                            NotificationManager.IMPORTANCE_DEFAULT
+                    );
+
+            channel.setDescription(
+                    "Daily AI-generated Burmese and English messages"
+            );
+
+            notificationManager.createNotificationChannel(channel);
+        }
+
+        Notification.Builder builder;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder = new Notification.Builder(
+                    appContext,
+                    CHANNEL_ID
+            );
+        } else {
+            builder = new Notification.Builder(appContext);
+        }
+
+        builder
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(
+                        new Notification.BigTextStyle()
+                                .bigText(body)
+                )
+                .setAutoCancel(true);
+
+        int notificationId =
+                (int) (System.currentTimeMillis() & 0x7fffffff);
+
+        notificationManager.notify(
+                notificationId,
+                builder.build()
+        );
     }
 }

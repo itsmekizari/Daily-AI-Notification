@@ -51,7 +51,7 @@ public final class NotificationHelper {
                 ? new Notification.Builder(appContext, CHANNEL_ID)
                 : new Notification.Builder(appContext);
 
-        builder.setSmallIcon(android.R.drawable.ic_dialog_info)
+        builder.setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(title == null ? "Daily AI Notification" : title)
                 .setContentText(body == null ? "" : body)
                 .setStyle(new Notification.BigTextStyle().bigText(body == null ? "" : body))

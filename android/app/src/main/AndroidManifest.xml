@@ -11,7 +11,8 @@
         android:allowBackup="true"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
-        android:label="Daily AI Notification">
+        android:label="Daily AI Notification"
+        android:icon="@drawable/ic_launcher">
 
         <activity
             android:name=".MainActivity"
@@ -32,6 +33,9 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
 

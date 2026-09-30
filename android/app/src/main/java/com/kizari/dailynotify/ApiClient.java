@@ -13,6 +13,9 @@ import java.nio.charset.StandardCharsets;
 
 public final class ApiClient {
 
+    // Kept for future use, but disabled in the local-message version.
+    public static final boolean AI_GENERATOR_ENABLED = false;
+
     private static final String API_URL =
             "https://daily-ai-notification-api.onrender.com/daily-message";
 
@@ -33,6 +36,10 @@ public final class ApiClient {
             String language,
             long totalTimeoutMs
     ) throws Exception {
+        if (!AI_GENERATOR_ENABLED) {
+            throw new IOException("OpenAI generator is disabled; local message bank is active");
+        }
+
         if (totalTimeoutMs < 1000L) {
             totalTimeoutMs = 1000L;
         }

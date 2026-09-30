@@ -3,356 +3,110 @@ package com.kizari.dailynotify;
 import android.Manifest;
 import android.app.Activity;
 import android.app.TimePickerDialog;
-import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.provider.Settings;
-import android.view.Gravity;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import java.text.DateFormat;
 import java.util.Calendar;
-import java.util.Date;
 import java.util.Locale;
 import java.util.UUID;
 
 public class MainActivity extends Activity {
-
     private static final String PREFS = "daily_ai_prefs";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 5001;
-
-    private static final String FIXED_STYLE = "Love Teasing";
-    private static final String[] LANGUAGES = {
-            "Burmese + English", "Burmese only", "English only"
-    };
-
+    private static final String[] LANGUAGES = {"Burmese + English", "Burmese only", "English only"};
     private SharedPreferences prefs;
     private Spinner languageSpinner;
     private Switch enabledSwitch;
     private TextView timeText;
-    private TextView statusText;
     private int selectedHour = 8;
     private int selectedMinute = 0;
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        ensureDeviceId();
-        loadPrefs();
-        buildUi();
-        requestNotificationPermissionIfNeeded();
+        ensureDeviceId(); loadPrefs(); buildUi(); requestNotificationPermissionIfNeeded();
     }
 
-    @Override
-    protected void onResume() {
+    @Override protected void onResume() {
         super.onResume();
         if (prefs != null && prefs.getBoolean("enabled", false)) {
+            DailyMessageReceiver.ensureNextMessage(this);
             DailyMessageReceiver.scheduleNext(this);
-            DailyMessageReceiver.ensurePrefetched(this);
         }
-        updateStatus();
     }
 
     private void ensureDeviceId() {
         String id = prefs.getString("device_id", null);
-        if (id == null || id.trim().isEmpty()) {
-            prefs.edit()
-                    .putString("device_id", UUID.randomUUID().toString())
-                    .apply();
-        }
+        if (id == null || id.trim().isEmpty()) prefs.edit().putString("device_id", UUID.randomUUID().toString()).apply();
     }
 
     private void loadPrefs() {
-        selectedHour = prefs.getInt("hour", 8);
-        selectedMinute = prefs.getInt("minute", 0);
+        selectedHour = prefs.getInt("hour", 8); selectedMinute = prefs.getInt("minute", 0);
     }
 
     private void buildUi() {
-        ScrollView scrollView = new ScrollView(this);
         LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(24), dp(22), dp(24), dp(24));
+        root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(24), dp(28), dp(24), dp(24));
 
-        TextView title = new TextView(this);
-        title.setText("🤖 Daily AI Notification");
-        title.setTextSize(28);
-        title.setGravity(Gravity.CENTER);
-        root.addView(title, matchWrap());
-
-        TextView subtitle = new TextView(this);
-        subtitle.setText(
-                "သတ်မှတ်ထားတဲ့အချိန်မှာ AI message တက်မယ်။ "
-                        + "notification တက်ပြီးတာနဲ့ နောက်စာကို အလိုအလျောက် generate လုပ်မယ်");
-        subtitle.setTextSize(16);
-        subtitle.setGravity(Gravity.CENTER);
-        root.addView(subtitle, marginParams(0, 6, 0, 22));
-
-        root.addView(label("AI Style"), marginParams(0, 0, 0, 4));
-        TextView fixedStyle = new TextView(this);
-        fixedStyle.setText("😏 Love Teasing\nFully AI-generated");
-        fixedStyle.setTextSize(18);
-        fixedStyle.setPadding(dp(12), dp(10), dp(12), dp(10));
-        root.addView(fixedStyle, matchWrap());
-
-        root.addView(label("Language"), marginParams(0, 18, 0, 4));
+        TextView languageLabel = label("Language");
+        root.addView(languageLabel, marginParams(0,0,0,6));
         languageSpinner = new Spinner(this);
-        ArrayAdapter<String> languageAdapter = new ArrayAdapter<>(
-                this,
-                android.R.layout.simple_spinner_item,
-                LANGUAGES);
-        languageAdapter.setDropDownViewResource(
-                android.R.layout.simple_spinner_dropdown_item);
-        languageSpinner.setAdapter(languageAdapter);
-        selectSpinner(languageSpinner,
-                prefs.getString("language", "Burmese + English"));
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, LANGUAGES);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        languageSpinner.setAdapter(adapter);
+        selectSpinner(languageSpinner, prefs.getString("language", "Burmese + English"));
         root.addView(languageSpinner, matchWrap());
 
-        root.addView(label("Daily time"), marginParams(0, 18, 0, 4));
-        timeText = new TextView(this);
-        timeText.setTextSize(24);
-        updateTimeText();
-        root.addView(timeText, marginParams(0, 0, 0, 8));
-
-        Button setTime = button("SET TIME");
-        setTime.setOnClickListener(v -> showTimePicker());
+        root.addView(label("Daily time"), marginParams(0,22,0,6));
+        timeText = new TextView(this); timeText.setTextSize(24); updateTimeText();
+        root.addView(timeText, marginParams(0,0,0,10));
+        Button setTime = button("SET TIME"); setTime.setOnClickListener(v -> showTimePicker());
         root.addView(setTime, matchWrap());
 
-        enabledSwitch = new Switch(this);
-        enabledSwitch.setText("Enable daily notification");
-        enabledSwitch.setTextSize(17);
+        enabledSwitch = new Switch(this); enabledSwitch.setText("Enable daily notification"); enabledSwitch.setTextSize(17);
         enabledSwitch.setChecked(prefs.getBoolean("enabled", false));
-        root.addView(enabledSwitch, marginParams(0, 18, 0, 10));
+        root.addView(enabledSwitch, marginParams(0,22,0,12));
 
-        Button save = button("SAVE & SCHEDULE");
-        save.setOnClickListener(v -> saveAndSchedule());
+        Button save = button("SAVE & SCHEDULE"); save.setOnClickListener(v -> saveAndSchedule());
         root.addView(save, matchWrap());
-
-        Button test = button("TEST NOTIFICATION");
-        test.setOnClickListener(v -> {
-            boolean shown = NotificationHelper.showTest(
-                    this,
-                    "🤭 Test",
-                    "စမ်းသပ် notification အောင်မြင်ပါတယ်!\n\nTest notification works!");
-            if (!shown) {
-                Toast.makeText(
-                        this,
-                        "Notification permission is blocked.",
-                        Toast.LENGTH_LONG).show();
-            }
-        });
-        root.addView(test, marginParams(0, 8, 0, 0));
-
-        Button exactAlarm = button("OPEN EXACT ALARM SETTINGS");
-        exactAlarm.setOnClickListener(v -> openExactAlarmSettings());
-        root.addView(exactAlarm, marginParams(0, 8, 0, 0));
-
-        Button notification = button("OPEN NOTIFICATION SETTINGS");
-        notification.setOnClickListener(v -> openNotificationSettings());
-        root.addView(notification, marginParams(0, 8, 0, 0));
-
-        statusText = new TextView(this);
-        statusText.setTextSize(15);
-        root.addView(statusText, marginParams(0, 18, 0, 0));
-        updateStatus();
-
-        scrollView.addView(root);
-        setContentView(scrollView);
+        setContentView(root);
     }
 
-    private TextView label(String text) {
-        TextView view = new TextView(this);
-        view.setText(text);
-        view.setTextSize(18);
-        return view;
-    }
-
-    private Button button(String text) {
-        Button button = new Button(this);
-        button.setText(text);
-        return button;
-    }
+    private TextView label(String text) { TextView v = new TextView(this); v.setText(text); v.setTextSize(18); return v; }
+    private Button button(String text) { Button b = new Button(this); b.setText(text); return b; }
 
     private void showTimePicker() {
-        TimePickerDialog dialog = new TimePickerDialog(
-                this,
-                (view, hourOfDay, minute) -> {
-                    selectedHour = hourOfDay;
-                    selectedMinute = minute;
-                    updateTimeText();
-                },
-                selectedHour,
-                selectedMinute,
-                false);
-        dialog.show();
+        new TimePickerDialog(this, (view,hour,minute) -> { selectedHour=hour; selectedMinute=minute; updateTimeText(); }, selectedHour, selectedMinute, false).show();
     }
 
     private void updateTimeText() {
-        if (timeText == null) return;
-        Calendar calendar = Calendar.getInstance();
-        calendar.set(Calendar.HOUR_OF_DAY, selectedHour);
-        calendar.set(Calendar.MINUTE, selectedMinute);
-        String formatted = DateFormat.getTimeInstance(
-                DateFormat.SHORT,
-                Locale.getDefault()).format(calendar.getTime());
-        timeText.setText(formatted);
+        if (timeText == null) return; Calendar c = Calendar.getInstance(); c.set(Calendar.HOUR_OF_DAY,selectedHour); c.set(Calendar.MINUTE,selectedMinute);
+        timeText.setText(DateFormat.getTimeInstance(DateFormat.SHORT, Locale.getDefault()).format(c.getTime()));
     }
 
     private void saveAndSchedule() {
-        String language = String.valueOf(languageSpinner.getSelectedItem());
-        boolean enabled = enabledSwitch.isChecked();
-
-        prefs.edit()
-                .putString("category", FIXED_STYLE)
-                .putString("language", language)
-                .putInt("hour", selectedHour)
-                .putInt("minute", selectedMinute)
-                .putBoolean("enabled", enabled)
-                .remove("next_my")
-                .remove("next_en")
-                .remove("next_language")
-                .remove("next_generated_at")
-                .apply();
-
-        if (enabled) {
-            DailyMessageReceiver.scheduleNext(this);
-            DailyMessageReceiver.enqueuePrefetch(this);
-            Toast.makeText(
-                    this,
-                    "Scheduled ✅\nThe next AI message is generating automatically.",
-                    Toast.LENGTH_SHORT).show();
-        } else {
-            DailyMessageReceiver.cancel(this);
-            Toast.makeText(
-                    this,
-                    "Daily notification disabled",
-                    Toast.LENGTH_SHORT).show();
-        }
-
-        updateStatus();
-    }
-
-    private void updateStatus() {
-        if (statusText == null || prefs == null) return;
-
-        boolean enabled = prefs.getBoolean("enabled", false);
-        String language = prefs.getString("language", "Burmese + English");
-        String lastStatus = prefs.getString("last_status", "Not run yet");
-        String lastError = prefs.getString("last_error", "");
-        boolean hasNext = !prefs.getString("next_my", "").trim().isEmpty()
-                || !prefs.getString("next_en", "").trim().isEmpty();
-
-        StringBuilder text = new StringBuilder();
-        text.append("Status: ").append(enabled ? "ON ✅" : "OFF ❌");
-        text.append("\nAI Style: ").append(FIXED_STYLE);
-        text.append("\nLanguage: ").append(language);
-        text.append("\nNext scheduled time: ").append(nextTimeText());
-        text.append("\nNext message ready: ")
-                .append(hasNext ? "YES ✅" : "Generating…");
-        text.append("\nLast AI status: ").append(lastStatus);
-        if (!lastError.isEmpty()) {
-            text.append("\nLast error: ").append(lastError);
-        }
-        statusText.setText(text.toString());
-    }
-
-    private String nextTimeText() {
-        if (!prefs.getBoolean("enabled", false)) {
-            return "Not scheduled";
-        }
-
-        Calendar calendar = Calendar.getInstance();
-        calendar.set(Calendar.HOUR_OF_DAY, selectedHour);
-        calendar.set(Calendar.MINUTE, selectedMinute);
-        calendar.set(Calendar.SECOND, 0);
-        calendar.set(Calendar.MILLISECOND, 0);
-
-        if (calendar.getTimeInMillis() <= System.currentTimeMillis()) {
-            calendar.add(Calendar.DAY_OF_YEAR, 1);
-        }
-
-        return DateFormat.getDateTimeInstance(
-                        DateFormat.MEDIUM,
-                        DateFormat.SHORT,
-                        Locale.getDefault())
-                .format(new Date(calendar.getTimeInMillis()));
+        String language = String.valueOf(languageSpinner.getSelectedItem()); boolean enabled = enabledSwitch.isChecked();
+        prefs.edit().putString("language",language).putInt("hour",selectedHour).putInt("minute",selectedMinute).putBoolean("enabled",enabled).remove("next_index").apply();
+        if (enabled) { DailyMessageReceiver.ensureNextMessage(this); DailyMessageReceiver.scheduleNext(this); }
+        else { DailyMessageReceiver.cancel(this); }
     }
 
     private void requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(
-                    new String[]{Manifest.permission.POST_NOTIFICATIONS},
-                    NOTIFICATION_PERMISSION_REQUEST);
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION_REQUEST);
     }
 
-    private void openExactAlarmSettings() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            try {
-                Intent intent = new Intent(
-                        Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
-                        Uri.parse("package:" + getPackageName()));
-                startActivity(intent);
-            } catch (Exception ignored) {
-                startActivity(new Intent(Settings.ACTION_SETTINGS));
-            }
-        } else {
-            Toast.makeText(
-                    this,
-                    "Exact alarm access is not required on this Android version.",
-                    Toast.LENGTH_LONG).show();
-        }
-    }
-
-    private void openNotificationSettings() {
-        Intent intent = new Intent();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            intent.setAction(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
-            intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
-        } else {
-            intent.setAction(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-            intent.setData(Uri.parse("package:" + getPackageName()));
-        }
-        startActivity(intent);
-    }
-
-    private void selectSpinner(Spinner spinner, String value) {
-        ArrayAdapter<?> adapter = (ArrayAdapter<?>) spinner.getAdapter();
-        for (int i = 0; i < adapter.getCount(); i++) {
-            if (value.equals(adapter.getItem(i))) {
-                spinner.setSelection(i);
-                return;
-            }
-        }
-    }
-
-    private LinearLayout.LayoutParams matchWrap() {
-        return new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-    }
-
-    private LinearLayout.LayoutParams marginParams(
-            int left, int top, int right, int bottom) {
-        LinearLayout.LayoutParams params = matchWrap();
-        params.setMargins(dp(left), dp(top), dp(right), dp(bottom));
-        return params;
-    }
-
-    private int dp(int value) {
-        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
-    }
+    private void selectSpinner(Spinner spinner,String value) { ArrayAdapter<?> a=(ArrayAdapter<?>)spinner.getAdapter(); for(int i=0;i<a.getCount();i++) if(value.equals(a.getItem(i))){spinner.setSelection(i);return;} }
+    private LinearLayout.LayoutParams matchWrap(){ return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); }
+    private LinearLayout.LayoutParams marginParams(int l,int t,int r,int b){ LinearLayout.LayoutParams p=matchWrap(); p.setMargins(dp(l),dp(t),dp(r),dp(b)); return p; }
+    private int dp(int v){ return (int)(v*getResources().getDisplayMetrics().density+0.5f); }
 }

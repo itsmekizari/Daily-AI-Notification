@@ -41,37 +41,43 @@ public class ApiClient {
                 "application/json"
         );
 
-        JSONObject requestBody = new JSONObject();
+        JSONObject body = new JSONObject();
+        body.put("device_id", deviceId);
+        body.put("category", category);
 
-        requestBody.put("device_id", deviceId);
-        requestBody.put("category", category);
-
-        try (OutputStream outputStream =
+        try (OutputStream output =
                      connection.getOutputStream()) {
 
-            outputStream.write(
-                    requestBody.toString()
+            output.write(
+                    body.toString()
                             .getBytes(StandardCharsets.UTF_8)
             );
         }
 
-        int responseCode = connection.getResponseCode();
+        int responseCode =
+                connection.getResponseCode();
 
         InputStream inputStream;
 
-        if (responseCode >= 200 && responseCode < 300) {
-            inputStream = connection.getInputStream();
+        if (responseCode >= 200
+                && responseCode < 300) {
+
+            inputStream =
+                    connection.getInputStream();
+
         } else {
-            inputStream = connection.getErrorStream();
+
+            inputStream =
+                    connection.getErrorStream();
         }
 
         if (inputStream == null) {
             throw new IOException(
-                    "Server returned HTTP " + responseCode
+                    "HTTP " + responseCode
             );
         }
 
-        StringBuilder responseBuilder =
+        StringBuilder result =
                 new StringBuilder();
 
         try (BufferedReader reader =
@@ -85,21 +91,23 @@ public class ApiClient {
             String line;
 
             while ((line = reader.readLine()) != null) {
-                responseBuilder.append(line);
+                result.append(line);
             }
         }
 
         connection.disconnect();
 
-        if (responseCode < 200 || responseCode >= 300) {
+        if (responseCode < 200
+                || responseCode >= 300) {
+
             throw new IOException(
-                    "HTTP " + responseCode +
-                    ": " + responseBuilder
+                    "HTTP " + responseCode
+                            + ": " + result
             );
         }
 
         return new JSONObject(
-                responseBuilder.toString()
+                result.toString()
         );
     }
 }

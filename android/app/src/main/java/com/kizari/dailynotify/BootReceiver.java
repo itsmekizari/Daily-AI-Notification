@@ -9,7 +9,8 @@ public class BootReceiver extends BroadcastReceiver {
 
     private static final String PREFS = "daily_ai_prefs";
 
-    private static final String ACTION_TIME_SET = "android.intent.action.TIME_SET";
+    private static final String ACTION_TIME_SET =
+            "android.intent.action.TIME_SET";
     private static final String ACTION_TIMEZONE_CHANGED =
             "android.intent.action.TIMEZONE_CHANGED";
     private static final String ACTION_EXACT_ALARM_PERMISSION_STATE_CHANGED =
@@ -30,11 +31,13 @@ public class BootReceiver extends BroadcastReceiver {
 
         Context appContext = context.getApplicationContext();
         SharedPreferences prefs = appContext.getSharedPreferences(
-                PREFS, Context.MODE_PRIVATE);
+                PREFS,
+                Context.MODE_PRIVATE
+        );
 
         if (prefs.getBoolean("enabled", false)) {
-            DailyMessageReceiver.scheduleNext(appContext);
             DailyMessageReceiver.ensureNextMessage(appContext);
+            DailyMessageReceiver.scheduleNext(appContext);
         }
     }
 }

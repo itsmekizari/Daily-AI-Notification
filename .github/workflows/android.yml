@@ -22,10 +22,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle 9.6
+      - name: Set up Gradle 9.1
         uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: '9.6.0'
+          gradle-version: '9.1.0'
           cache-provider: basic
 
       - name: Build debug APK
@@ -38,4 +38,3 @@ jobs:
           name: Daily-AI-Notification-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          

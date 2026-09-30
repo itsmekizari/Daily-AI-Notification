@@ -12,6 +12,7 @@ app = FastAPI(title="Daily AI Notification API")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna").strip()
+OPENAI_GENERATOR_ENABLED = os.getenv("OPENAI_GENERATOR_ENABLED", "false").strip().lower() == "true"
 DB_PATH = os.getenv("DB_PATH", "messages.sqlite3")
 
 client = OpenAI(
@@ -206,6 +207,9 @@ def health():
 
 @app.post("/daily-message")
 def daily_message(request: GenerateRequest):
+    if not OPENAI_GENERATOR_ENABLED:
+        raise HTTPException(status_code=503, detail="OpenAI generator is disabled. The Android app uses its local 1,000-message bank.")
+
     if client is None:
         raise HTTPException(
             status_code=500,

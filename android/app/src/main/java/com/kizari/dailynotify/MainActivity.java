@@ -146,12 +146,6 @@ public class MainActivity extends Activity {
         NotificationHelper.show(this, "Test Notification", message);
     }
 
-    private void updateCustomCountText() {
-        if (customCountText != null) {
-            customCountText.setText(CustomMessageStore.getCount(this) + " custom message(s) saved");
-        }
-    }
-
     private TextView label(String text) {
         TextView v = new TextView(this);
         v.setText(text);

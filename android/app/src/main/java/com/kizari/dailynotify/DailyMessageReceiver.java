@@ -1,175 +1,349 @@
 package com.kizari.dailynotify;
 
+import android.Manifest;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.os.Build;
 
 import java.security.SecureRandom;
-import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.Collections;
-import java.util.List;
+import java.util.Random;
 
 public class DailyMessageReceiver extends BroadcastReceiver {
-    private static final String PREFS="daily_ai_prefs";
-    private static final String ALARM_ACTION="com.kizari.dailynotify.DAILY_ALARM";
-    private static final int ALARM_REQUEST_CODE=1001;
 
-    @Override public void onReceive(Context context, Intent intent){
-        if(context==null)return;
-        Context app=context.getApplicationContext();
-        SharedPreferences p=app.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
-        if(!p.getBoolean("enabled",false))return;
+    private static final String PREFS = "daily_ai_prefs";
+    private static final String ALARM_ACTION = "com.kizari.dailynotify.DAILY_ALARM";
+    private static final int ALARM_REQUEST_CODE = 1001;
 
-        int index=ensureNextIndex(app);
-        String language=p.getString("language","Burmese + English");
-        String message=formatIndex(app,index,language);
-        NotificationHelper.show(app,"Daily AI Notification",message);
+    private static final String KEY_NEXT_SOURCE = "next_source";
+    private static final String KEY_NEXT_INDEX = "next_index";
+    private static final String SOURCE_CUSTOM = "custom";
+    private static final String SOURCE_LOCAL = "local";
 
-        p.edit().remove("next_index").apply();
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        if (context == null) return;
+
+        Context app = context.getApplicationContext();
+        SharedPreferences prefs = app.getSharedPreferences(
+                PREFS,
+                Context.MODE_PRIVATE
+        );
+
+        if (!prefs.getBoolean("enabled", false)) return;
+
+        String language = prefs.getString(
+                "language",
+                "Burmese + English"
+        );
+
+        String message = takePreparedMessage(app, language);
+        if (message == null || message.trim().isEmpty()) {
+            message = randomMessage(app, language, new SecureRandom());
+        }
+
+        if (message != null && !message.trim().isEmpty()) {
+            NotificationHelper.show(
+                    app,
+                    "Daily AI Notification",
+                    message
+            );
+        }
+
+        // As soon as the displayed message is consumed, select and save the
+        // following message. There is no manual generation step and no AI call.
         ensureNextMessage(app);
         scheduleNext(app);
     }
 
-    public static void ensureNextMessage(Context context){
-        if(context==null)return;
-        SharedPreferences p=context.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
-        if(p.getBoolean("enabled",false))ensureNextIndex(context.getApplicationContext());
-    }
+    public static void showTestNotification(Context context) {
+        if (context == null) return;
 
-    public static String peekNextText(Context context,String language){
-        if(context==null)return null;
-        int index=ensureNextIndex(context.getApplicationContext());
-        return formatIndex(context.getApplicationContext(),index,language);
-    }
+        Context app = context.getApplicationContext();
+        SharedPreferences prefs = app.getSharedPreferences(
+                PREFS,
+                Context.MODE_PRIVATE
+        );
+        String language = prefs.getString(
+                "language",
+                "Burmese + English"
+        );
 
-    private static String formatIndex(Context context,int index,String language){
-        if(index<LocalMessageBank.SIZE){
-            return LocalMessageBank.format(index,language);
-        }
-        List<String> custom=CustomMessageStore.getAll(context);
-        int customIndex=index-LocalMessageBank.SIZE;
-        if(customIndex>=0 && customIndex<custom.size())return custom.get(customIndex);
-        return LocalMessageBank.format(0,language);
-    }
+        String message = randomMessage(
+                app,
+                language,
+                new SecureRandom()
+        );
 
-    private static int poolSize(Context context){
-        return LocalMessageBank.SIZE + CustomMessageStore.getCount(context);
-    }
-
-    private static int ensureNextIndex(Context context){
-        SharedPreferences p=context.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
-        int size=poolSize(context);
-
-        String next=p.getString("next_index","");
-        if(next!=null&&!next.trim().isEmpty()){
-            try{
-                int i=Integer.parseInt(next.trim());
-                if(i>=0&&i<size)return i;
-            }catch(NumberFormatException ignored){}
+        if (message == null || message.trim().isEmpty()) {
+            message = "Test notification is working. ✅";
         }
 
-        String order=p.getString("remaining_order","");
-        int cursor=p.getInt("remaining_cursor",0);
-        int[] values;
+        NotificationHelper.show(
+                app,
+                "Test Notification",
+                message
+        );
+    }
 
-        if(order==null||order.trim().isEmpty()||cursor>=size){
-            values=newShuffledOrder(size);
-            order=join(values);
-            cursor=0;
-        }else{
-            values=parse(order,size);
-            if(values.length!=size||cursor<0||cursor>=values.length){
-                values=newShuffledOrder(size);
-                order=join(values);
-                cursor=0;
-            }
-        }
-
-        int index=values[cursor];
-        p.edit()
-                .putString("remaining_order",order)
-                .putInt("remaining_cursor",cursor+1)
-                .putString("next_index",String.valueOf(index))
+    public static void clearPreparedMessage(Context context) {
+        if (context == null) return;
+        context.getApplicationContext()
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .remove(KEY_NEXT_SOURCE)
+                .remove(KEY_NEXT_INDEX)
                 .apply();
-        return index;
     }
 
-    private static int[] newShuffledOrder(int size){
-        ArrayList<Integer> values=new ArrayList<>(size);
-        for(int i=0;i<size;i++)values.add(i);
-        Collections.shuffle(values,new SecureRandom());
-        int[] result=new int[size];
-        for(int i=0;i<size;i++)result[i]=values.get(i);
-        return result;
-    }
+    public static void ensureNextMessage(Context context) {
+        if (context == null) return;
 
-    private static String join(int[] values){
-        StringBuilder b=new StringBuilder(values.length*5);
-        for(int i=0;i<values.length;i++){
-            if(i>0)b.append(',');
-            b.append(values[i]);
+        Context app = context.getApplicationContext();
+        SharedPreferences prefs = app.getSharedPreferences(
+                PREFS,
+                Context.MODE_PRIVATE
+        );
+
+        if (!prefs.getBoolean("enabled", false)) return;
+
+        String source = prefs.getString(KEY_NEXT_SOURCE, "");
+        String rawIndex = prefs.getString(KEY_NEXT_INDEX, "");
+
+        if (SOURCE_CUSTOM.equals(source)) {
+            if (isValidIndex(rawIndex, CustomMessageStore.size(app))) return;
+        } else if (SOURCE_LOCAL.equals(source)) {
+            if (isValidIndex(rawIndex, LocalMessageBank.SIZE)) return;
         }
-        return b.toString();
+
+        Random random = new SecureRandom();
+
+        boolean hasCustom = CustomMessageStore.size(app) > 0;
+        boolean chooseCustom = hasCustom && random.nextInt(100) < 50;
+
+        String sourceToStore = chooseCustom ? SOURCE_CUSTOM : SOURCE_LOCAL;
+        int size = chooseCustom
+                ? CustomMessageStore.size(app)
+                : LocalMessageBank.SIZE;
+
+        if (size <= 0) {
+            sourceToStore = SOURCE_LOCAL;
+            size = LocalMessageBank.SIZE;
+        }
+
+        int index = random.nextInt(size);
+
+        String lastSource = prefs.getString("last_source", "");
+        int lastIndex = prefs.getInt("last_index", -1);
+
+        if (sourceToStore.equals(lastSource) && index == lastIndex && size > 1) {
+            index = (index + 1 + random.nextInt(size - 1)) % size;
+        }
+
+        prefs.edit()
+                .putString(KEY_NEXT_SOURCE, sourceToStore)
+                .putString(KEY_NEXT_INDEX, String.valueOf(index))
+                .apply();
     }
 
-    private static int[] parse(String value,int size){
-        String[] parts=value.split(",");
-        if(parts.length!=size)return new int[0];
-        int[] r=new int[parts.length];
-        boolean[] seen=new boolean[size];
-        try{
-            for(int i=0;i<parts.length;i++){
-                r[i]=Integer.parseInt(parts[i]);
-                if(r[i]<0||r[i]>=size||seen[r[i]])return new int[0];
-                seen[r[i]]=true;
+    private static String takePreparedMessage(
+            Context context,
+            String language
+    ) {
+        SharedPreferences prefs = context.getSharedPreferences(
+                PREFS,
+                Context.MODE_PRIVATE
+        );
+
+        String source = prefs.getString(KEY_NEXT_SOURCE, "");
+        String rawIndex = prefs.getString(KEY_NEXT_INDEX, "");
+
+        int size;
+        if (SOURCE_CUSTOM.equals(source)) {
+            size = CustomMessageStore.size(context);
+        } else {
+            size = LocalMessageBank.SIZE;
+        }
+
+        if (!isValidIndex(rawIndex, size)) return null;
+
+        try {
+            int index = Integer.parseInt(rawIndex.trim());
+            String message;
+
+            if (SOURCE_CUSTOM.equals(source)) {
+                // Custom entries are randomly selected from their own saved list.
+                // The exact index is stored by position, so rebuild the selected
+                // entry deterministically by using the list index.
+                message = getCustomByIndex(context, index, language);
+            } else {
+                message = LocalMessageBank.format(index, language);
             }
-            return r;
-        }catch(NumberFormatException e){
-            return new int[0];
+
+            prefs.edit()
+                    .remove(KEY_NEXT_SOURCE)
+                    .remove(KEY_NEXT_INDEX)
+                    .putString("last_source", source)
+                    .putInt("last_index", index)
+                    .apply();
+
+            return message;
+        } catch (NumberFormatException ignored) {
+            return null;
         }
     }
 
-    public static void scheduleNext(Context context){
-        if(context==null)return;
-        SharedPreferences p=context.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
-        if(!p.getBoolean("enabled",false))return;
+    private static String getCustomByIndex(
+            Context context,
+            int wantedIndex,
+            String language
+    ) {
+        String raw = CustomMessageStore.loadRaw(context);
+        String[] lines = raw.split("\\r?\\n");
+        int current = 0;
 
-        int hour=p.getInt("hour",8), minute=p.getInt("minute",0);
-        Calendar c=Calendar.getInstance();
-        c.set(Calendar.HOUR_OF_DAY,hour);
-        c.set(Calendar.MINUTE,minute);
-        c.set(Calendar.SECOND,0);
-        c.set(Calendar.MILLISECOND,0);
-        if(c.getTimeInMillis()<=System.currentTimeMillis())c.add(Calendar.DAY_OF_YEAR,1);
+        for (String line : lines) {
+            String value = line.trim();
+            if (value.isEmpty()) continue;
 
-        AlarmManager am=(AlarmManager)context.getSystemService(Context.ALARM_SERVICE);
-        if(am==null)return;
-        PendingIntent pi=getPendingIntent(context);
-        long at=c.getTimeInMillis();
-        try{
-            if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S){
-                if(am.canScheduleExactAlarms())am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,at,pi);
-                else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,at,pi);
-            }else am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,at,pi);
-        }catch(SecurityException e){
-            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,at,pi);
+            String my = value;
+            String en = value;
+            int separator = value.indexOf("||");
+            if (separator >= 0) {
+                my = value.substring(0, separator).trim();
+                en = value.substring(separator + 2).trim();
+                if (my.isEmpty()) my = en;
+                if (en.isEmpty()) en = my;
+            }
+
+            if (current == wantedIndex) {
+                if ("Burmese only".equals(language)) return my;
+                if ("English only".equals(language)) return en;
+                return my + "\n\n" + en;
+            }
+            current++;
+        }
+
+        return null;
+    }
+
+    private static String randomMessage(
+            Context context,
+            String language,
+            Random random
+    ) {
+        int customSize = CustomMessageStore.size(context);
+        if (customSize > 0 && random.nextInt(100) < 50) {
+            String custom = CustomMessageStore.random(
+                    context,
+                    language,
+                    random
+            );
+            if (custom != null && !custom.trim().isEmpty()) {
+                return custom;
+            }
+        }
+
+        return LocalMessageBank.format(
+                random.nextInt(LocalMessageBank.SIZE),
+                language
+        );
+    }
+
+    private static boolean isValidIndex(String value, int size) {
+        if (value == null || value.trim().isEmpty() || size <= 0) return false;
+        try {
+            int index = Integer.parseInt(value.trim());
+            return index >= 0 && index < size;
+        } catch (NumberFormatException ignored) {
+            return false;
         }
     }
 
-    private static PendingIntent getPendingIntent(Context context){
-        Intent i=new Intent(context,DailyMessageReceiver.class);
-        i.setAction(ALARM_ACTION);
-        return PendingIntent.getBroadcast(context,ALARM_REQUEST_CODE,i,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+    public static void scheduleNext(Context context) {
+        if (context == null) return;
+
+        SharedPreferences prefs = context.getSharedPreferences(
+                PREFS,
+                Context.MODE_PRIVATE
+        );
+
+        if (!prefs.getBoolean("enabled", false)) return;
+
+        int hour = prefs.getInt("hour", 8);
+        int minute = prefs.getInt("minute", 0);
+
+        Calendar calendar = Calendar.getInstance();
+        calendar.set(Calendar.HOUR_OF_DAY, hour);
+        calendar.set(Calendar.MINUTE, minute);
+        calendar.set(Calendar.SECOND, 0);
+        calendar.set(Calendar.MILLISECOND, 0);
+
+        if (calendar.getTimeInMillis() <= System.currentTimeMillis()) {
+            calendar.add(Calendar.DAY_OF_YEAR, 1);
+        }
+
+        AlarmManager alarmManager =
+                (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        if (alarmManager == null) return;
+
+        PendingIntent pendingIntent = getPendingIntent(context);
+        long triggerAt = calendar.getTimeInMillis();
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerAt,
+                            pendingIntent
+                    );
+                } else {
+                    alarmManager.setAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerAt,
+                            pendingIntent
+                    );
+                }
+            } else {
+                alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAt,
+                        pendingIntent
+                );
+            }
+        } catch (SecurityException ignored) {
+            alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAt,
+                    pendingIntent
+            );
+        }
     }
 
-    public static void cancel(Context context){
-        if(context==null)return;
-        AlarmManager am=(AlarmManager)context.getSystemService(Context.ALARM_SERVICE);
-        if(am!=null)am.cancel(getPendingIntent(context));
+    private static PendingIntent getPendingIntent(Context context) {
+        Intent intent = new Intent(context, DailyMessageReceiver.class);
+        intent.setAction(ALARM_ACTION);
+        return PendingIntent.getBroadcast(
+                context,
+                ALARM_REQUEST_CODE,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+    }
+
+    public static void cancel(Context context) {
+        if (context == null) return;
+
+        AlarmManager alarmManager =
+                (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        if (alarmManager != null) {
+            alarmManager.cancel(getPendingIntent(context));
+        }
     }
 }

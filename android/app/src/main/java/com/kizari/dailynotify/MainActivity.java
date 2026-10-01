@@ -6,33 +6,36 @@ import android.app.AlertDialog;
 import android.app.TimePickerDialog;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
-import android.view.Gravity;
 import android.view.View;
+import android.view.Window;
+import android.view.inputmethod.InputMethodManager;
+import android.content.Context;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.PopupMenu;
-import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.text.DateFormat;
-import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 public class MainActivity extends Activity {
+
     private static final String PREFS = "daily_ai_prefs";
     private static final int NOTIFICATION_PERMISSION_REQUEST = 5001;
-    private static final String[] LANGUAGES = {"Burmese + English", "Burmese only", "English only"};
+    private static final String[] LANGUAGES = {
+            "Burmese + English",
+            "Burmese only",
+            "English only"
+    };
 
     private SharedPreferences prefs;
     private Spinner languageSpinner;
@@ -40,24 +43,33 @@ public class MainActivity extends Activity {
     private TextView timeText;
     private int selectedHour = 8;
     private int selectedMinute = 0;
-    private TextView customCountText;
 
-    @Override protected void onCreate(Bundle savedInstanceState) {
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        ensureDeviceId();
         loadPrefs();
         buildUi();
         requestNotificationPermissionIfNeeded();
     }
 
-    @Override protected void onResume() {
+    @Override
+    protected void onResume() {
         super.onResume();
         if (prefs != null && prefs.getBoolean("enabled", false)) {
             DailyMessageReceiver.ensureNextMessage(this);
             DailyMessageReceiver.scheduleNext(this);
         }
-        if (customCountText != null) {
-            updateCustomCountText();
+    }
+
+    private void ensureDeviceId() {
+        String id = prefs.getString("device_id", null);
+        if (id == null || id.trim().isEmpty()) {
+            prefs.edit()
+                    .putString("device_id", UUID.randomUUID().toString())
+                    .apply();
         }
     }
 
@@ -69,37 +81,34 @@ public class MainActivity extends Activity {
     private void buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(24), dp(18), dp(24), dp(24));
+        root.setPadding(dp(24), dp(28), dp(24), dp(24));
 
-        LinearLayout topRow = new LinearLayout(this);
-        topRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView languageLabel = label("Language");
+        root.addView(languageLabel, marginParams(0, 0, 0, 6));
 
-        TextView title = new TextView(this);
-        title.setText("Daily AI Notification");
-        title.setTextSize(21);
-        title.setTextColor(Color.BLACK);
-        topRow.addView(title, new LinearLayout.LayoutParams(0, dp(52), 1f));
-
-        TextView more = new TextView(this);
-        more.setText("⋮");
-        more.setGravity(Gravity.CENTER);
-        more.setTextSize(28);
-        more.setTextColor(Color.DKGRAY);
-        more.setContentDescription("More options");
-        more.setPadding(dp(10), 0, dp(4), 0);
-        more.setOnClickListener(this::showMoreMenu);
-        topRow.addView(more, new LinearLayout.LayoutParams(dp(48), dp(52)));
-        root.addView(topRow);
-
-        root.addView(label("Language"), marginParams(0, 8, 0, 6));
         languageSpinner = new Spinner(this);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, LANGUAGES);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                this,
+                android.R.layout.simple_spinner_item,
+                LANGUAGES
+        );
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         languageSpinner.setAdapter(adapter);
-        selectSpinner(languageSpinner, prefs.getString("language", "Burmese + English"));
+        selectSpinner(
+                languageSpinner,
+                prefs.getString("language", "Burmese + English")
+        );
         root.addView(languageSpinner, matchWrap());
 
-        root.addView(label("Daily time"), marginParams(0, 22, 0, 6));
+        TextView timeLabel = label("Daily time");
+        root.addView(timeLabel, marginParams(0, 22, 0, 6));
+
+        // Deliberately unobtrusive entry point for the in-app custom message editor.
+        timeLabel.setOnLongClickListener(v -> {
+            showCustomMessagesEditor();
+            return true;
+        });
+
         timeText = new TextView(this);
         timeText.setTextSize(24);
         updateTimeText();
@@ -117,168 +126,79 @@ public class MainActivity extends Activity {
 
         Button save = button("SAVE & SCHEDULE");
         save.setOnClickListener(v -> saveAndSchedule());
-        root.addView(save, matchWrap());
+        root.addView(save, marginParams(0, 0, 0, 8));
 
+        // Restored test option. It does not change the daily schedule or consume
+        // the prepared message for the next scheduled notification.
         Button test = button("TEST NOTIFICATION");
-        test.setOnClickListener(v -> sendTestNotification());
-        root.addView(test, marginParams(0, 10, 0, 0));
-
-        customCountText = new TextView(this);
-        customCountText.setTextSize(12);
-        customCountText.setTextColor(Color.GRAY);
-        customCountText.setPadding(0, dp(18), 0, 0);
-        updateCustomCountText();
-        root.addView(customCountText, matchWrap());
+        test.setOnClickListener(v -> DailyMessageReceiver.showTestNotification(this));
+        root.addView(test, matchWrap());
 
         setContentView(root);
     }
 
-    private void showMoreMenu(View anchor) {
-        PopupMenu menu = new PopupMenu(this, anchor);
-        menu.getMenu().add("Settings");
-        menu.setOnMenuItemClickListener(item -> {
-            showSettingsDialog();
-            return true;
-        });
-        menu.show();
-    }
-
-    /** The option is intentionally tucked into the small ⋮ menu on the top-right. */
-    private void showSettingsDialog() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), dp(6), dp(20), dp(4));
-
-        TextView section = label("Other");
-        box.addView(section, marginParams(0, 0, 0, 8));
-
-        Button custom = button("Custom Messages");
-        custom.setAllCaps(false);
-        custom.setOnClickListener(v -> {
-            dismissCurrentDialogIfNeeded();
-            showCustomMessagesEditor();
-        });
-        box.addView(custom, matchWrap());
-
-        settingsDialog = new AlertDialog.Builder(this)
-                .setTitle("Settings")
-                .setView(box)
-                .setNegativeButton("CLOSE", null)
-                .create();
-        settingsDialog.show();
-    }
-
-    private AlertDialog settingsDialog;
-
-    private void dismissCurrentDialogIfNeeded() {
-        if (settingsDialog != null && settingsDialog.isShowing()) settingsDialog.dismiss();
-    }
-
     private void showCustomMessagesEditor() {
-        final List<String> messages = new ArrayList<>(CustomMessageStore.getAll(this));
+        final EditText editor = new EditText(this);
+        editor.setInputType(
+                InputType.TYPE_CLASS_TEXT
+                        | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                        | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        );
+        editor.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
+        editor.setMinLines(8);
+        editor.setPadding(dp(14), dp(12), dp(14), dp(12));
+        editor.setHint("One message per line\nOptional: Burmese || English");
+        editor.setText(CustomMessageStore.loadRaw(this));
+        editor.setSelection(editor.length());
 
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(18), dp(6), dp(18), dp(8));
-        scroll.addView(content);
+        int side = dp(20);
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setPadding(side, dp(4), side, dp(4));
+        wrapper.addView(editor, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
 
-        TextView hint = new TextView(this);
-        hint.setText("Messages entered here are mixed into the random notification pool.");
-        hint.setTextSize(12);
-        hint.setTextColor(Color.GRAY);
-        content.addView(hint, marginParams(0, 0, 0, 10));
-
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        content.addView(list, matchWrap());
-
-        final Runnable syncFields = new Runnable() {
-            @Override public void run() {
-                for (int i = 0; i < list.getChildCount() && i < messages.size(); i++) {
-                    View child = list.getChildAt(i);
-                    if (child instanceof LinearLayout) {
-                        LinearLayout row = (LinearLayout) child;
-                        if (row.getChildCount() > 0 && row.getChildAt(0) instanceof EditText) {
-                            messages.set(i, ((EditText) row.getChildAt(0)).getText().toString());
-                        }
-                    }
-                }
-            }
-        };
-
-        final Runnable[] renderRef = new Runnable[1];
-        renderRef[0] = new Runnable() {
-            @Override public void run() {
-                list.removeAllViews();
-                for (int i = 0; i < messages.size(); i++) {
-                    final int index = i;
-                    LinearLayout row = new LinearLayout(MainActivity.this);
-                    row.setOrientation(LinearLayout.VERTICAL);
-                    row.setPadding(0, dp(6), 0, dp(10));
-
-                    EditText edit = new EditText(MainActivity.this);
-                    edit.setText(messages.get(i));
-                    edit.setTextSize(15);
-                    edit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-                    edit.setMinLines(2);
-                    edit.setGravity(Gravity.TOP | Gravity.START);
-                    edit.setHint("Message " + (i + 1));
-                    row.addView(edit, matchWrap());
-
-                    Button remove = button("DELETE");
-                    remove.setOnClickListener(v -> {
-                        syncFields.run();
-                        messages.remove(index);
-                        renderRef[0].run();
-                    });
-                    row.addView(remove, wrapContent());
-                    list.addView(row, matchWrap());
-                }
-            }
-        };
-        renderRef[0].run();
-
-        Button add = button("+ ADD MESSAGE");
-        add.setOnClickListener(v -> {
-            syncFields.run();
-            messages.add("");
-            renderRef[0].run();
-            scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
-        });
-        content.addView(add, marginParams(0, 8, 0, 0));
-
-        new AlertDialog.Builder(this)
-                .setTitle("Custom Messages")
-                .setView(scroll)
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Custom messages")
+                .setView(wrapper)
                 .setNegativeButton("CANCEL", null)
-                .setPositiveButton("SAVE", (dialog, which) -> {
-                    syncFields.run();
-                    ArrayList<String> cleaned = new ArrayList<>();
-                    for (String message : messages) {
-                        if (message != null && !message.trim().isEmpty()) cleaned.add(message.trim());
-                    }
-                    CustomMessageStore.saveAll(this, cleaned);
-                    updateCustomCountText();
-                    if (prefs.getBoolean("enabled", false)) DailyMessageReceiver.ensureNextMessage(this);
-                    Toast.makeText(this, "Custom messages saved", Toast.LENGTH_SHORT).show();
-                })
-                .show();
+                .setPositiveButton("SAVE", null)
+                .create();
+
+        dialog.setOnShowListener(d -> {
+            Button save = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            save.setOnClickListener(v -> {
+                CustomMessageStore.saveRaw(this, editor.getText().toString());
+                DailyMessageReceiver.clearPreparedMessage(this);
+                if (prefs.getBoolean("enabled", false)) {
+                    DailyMessageReceiver.ensureNextMessage(this);
+                    DailyMessageReceiver.scheduleNext(this);
+                }
+                Toast.makeText(
+                        this,
+                        "Custom messages saved",
+                        Toast.LENGTH_SHORT
+                ).show();
+                hideKeyboard(editor);
+                dialog.dismiss();
+            });
+        });
+
+        dialog.setOnDismissListener(d -> hideKeyboard(editor));
+        dialog.show();
+
+        editor.requestFocus();
+        editor.postDelayed(() -> {
+            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT);
+        }, 180);
     }
 
-    private void sendTestNotification() {
-        String language = String.valueOf(languageSpinner.getSelectedItem());
-        String message = DailyMessageReceiver.peekNextText(this, language);
-        if (message == null || message.trim().isEmpty()) {
-            Toast.makeText(this, "No message available", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        NotificationHelper.show(this, "Test Notification", message);
-    }
-
-    private void updateCustomCountText() {
-        if (customCountText != null) {
-            customCountText.setText(CustomMessageStore.getCount(this) + " custom message(s) saved");
+    private void hideKeyboard(View view) {
+        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) {
+            imm.hideSoftInputFromWindow(view.getWindowToken(), 0);
         }
     }
 
@@ -296,11 +216,17 @@ public class MainActivity extends Activity {
     }
 
     private void showTimePicker() {
-        new TimePickerDialog(this, (view, hour, minute) -> {
-            selectedHour = hour;
-            selectedMinute = minute;
-            updateTimeText();
-        }, selectedHour, selectedMinute, false).show();
+        new TimePickerDialog(
+                this,
+                (view, hour, minute) -> {
+                    selectedHour = hour;
+                    selectedMinute = minute;
+                    updateTimeText();
+                },
+                selectedHour,
+                selectedMinute,
+                false
+        ).show();
     }
 
     private void updateTimeText() {
@@ -308,41 +234,50 @@ public class MainActivity extends Activity {
         Calendar c = Calendar.getInstance();
         c.set(Calendar.HOUR_OF_DAY, selectedHour);
         c.set(Calendar.MINUTE, selectedMinute);
-        timeText.setText(DateFormat.getTimeInstance(DateFormat.SHORT, Locale.getDefault()).format(c.getTime()));
+        timeText.setText(
+                DateFormat.getTimeInstance(
+                        DateFormat.SHORT,
+                        Locale.getDefault()
+                ).format(c.getTime())
+        );
     }
 
     private void saveAndSchedule() {
         String language = String.valueOf(languageSpinner.getSelectedItem());
         boolean enabled = enabledSwitch.isChecked();
+
         prefs.edit()
                 .putString("language", language)
                 .putInt("hour", selectedHour)
                 .putInt("minute", selectedMinute)
                 .putBoolean("enabled", enabled)
+                .remove("next_source")
                 .remove("next_index")
-                .remove("remaining_order")
-                .remove("remaining_cursor")
                 .apply();
+
         if (enabled) {
             DailyMessageReceiver.ensureNextMessage(this);
             DailyMessageReceiver.scheduleNext(this);
         } else {
             DailyMessageReceiver.cancel(this);
         }
-        Toast.makeText(this, enabled ? "Daily notification scheduled" : "Daily notification disabled", Toast.LENGTH_SHORT).show();
     }
 
     private void requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION_REQUEST);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                    new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                    NOTIFICATION_PERMISSION_REQUEST
+            );
         }
     }
 
     private void selectSpinner(Spinner spinner, String value) {
-        ArrayAdapter<?> a = (ArrayAdapter<?>) spinner.getAdapter();
-        for (int i = 0; i < a.getCount(); i++) {
-            if (value.equals(a.getItem(i))) {
+        ArrayAdapter<?> adapter = (ArrayAdapter<?>) spinner.getAdapter();
+        for (int i = 0; i < adapter.getCount(); i++) {
+            if (value.equals(adapter.getItem(i))) {
                 spinner.setSelection(i);
                 return;
             }
@@ -350,11 +285,10 @@ public class MainActivity extends Activity {
     }
 
     private LinearLayout.LayoutParams matchWrap() {
-        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-    }
-
-    private LinearLayout.LayoutParams wrapContent() {
-        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        return new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
     }
 
     private LinearLayout.LayoutParams marginParams(int l, int t, int r, int b) {
@@ -363,7 +297,9 @@ public class MainActivity extends Activity {
         return p;
     }
 
-    private int dp(int v) {
-        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+    private int dp(int value) {
+        return (int) (
+                value * getResources().getDisplayMetrics().density + 0.5f
+        );
     }
 }

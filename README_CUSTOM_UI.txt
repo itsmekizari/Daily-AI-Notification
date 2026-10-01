@@ -1,31 +1,11 @@
-Daily AI Notification v2.5 changed files
+Updated Daily AI Notification local-1000 patch
 
-1) Replace:
-android/app/src/main/java/com/kizari/dailynotify/MainActivity.java
-
-2) Replace:
-android/app/src/main/java/com/kizari/dailynotify/DailyMessageReceiver.java
-
-3) Replace:
-android/app/src/main/java/com/kizari/dailynotify/BootReceiver.java
-
-4) Add:
-android/app/src/main/java/com/kizari/dailynotify/CustomMessageStore.java
-
-Hidden custom-message editor:
-- Open the app normally.
-- Press and hold the "Daily time" label.
-- The custom-message editor opens.
-- One line = one message.
-- Optional bilingual format:
-  Burmese text || English text
-- The editor itself is not shown on the normal main screen.
-
-Test notification:
-- The visible TEST NOTIFICATION button is restored.
-- It sends a random test message immediately.
-- It does not consume the prepared message for the daily schedule.
-
-OpenAI:
-- AI generation remains disabled. The app uses the local 1,000-message bank plus
-  the optional messages saved through the hidden editor.
+Changes:
+- Main screen keeps Language, Daily time, Enable, Save & Schedule.
+- Test Notification button restored on the main screen.
+- A small top-right vertical-dots (⋮) option opens Settings.
+- In Settings -> Other -> Custom Messages, messages can be added, edited and deleted directly inside the app.
+- The Custom Messages option is intentionally tucked inside the ⋮ menu instead of being displayed on the main screen.
+- Custom messages are mixed into the same random no-repeat pool as the built-in 1,000 messages.
+- Saving custom messages resets the random pool so changed content is used immediately.
+- OpenAI generator remains present but is not called by the app.
